@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory
+        android:title="@string/settings_title_network_storage"
+        app:iconSpaceReserved="false">
+
+        <SwitchPreferenceCompat
+            android:key="@string/pref_key_network_storage_enabled"
+            android:title="@string/network_storage_enabled"
+            app:iconSpaceReserved="false"
+            android:defaultValue="false"/>
+
+        <ListPreference
+            android:key="@string/pref_key_network_storage_protocol"
+            android:title="@string/network_storage_protocol"
+            android:entries="@array/network_storage_protocol_display_names"
+            android:entryValues="@array/network_storage_protocol_values"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true"
+            android:defaultValue="SMB"/>
+
+        <EditTextPreference
+            android:key="@string/pref_key_network_storage_host"
+            android:title="@string/network_storage_host"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true"/>
+
+        <EditTextPreference
+            android:key="@string/pref_key_network_storage_port"
+            android:title="@string/network_storage_port"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true"
+            android:defaultValue="0"/>
+
+        <EditTextPreference
+            android:key="@string/pref_key_network_storage_username"
+            android:title="@string/network_storage_username"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true"/>
+
+        <EditTextPreference
+            android:key="@string/pref_key_network_storage_password"
+            android:title="@string/network_storage_password"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="false"
+            android:inputType="textPassword"/>
+
+        <EditTextPreference
+            android:key="@string/pref_key_network_storage_remote_path"
+            android:title="@string/network_storage_remote_path"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true"/>
+
+        <Preference
+            android:key="@string/pref_key_network_storage_test_connection"
+            android:title="@string/network_storage_test_connection"
+            app:iconSpaceReserved="false"
+            android:persistent="false"/>
+
+        <Preference
+            android:key="@string/pref_key_network_storage_clear_cache"
+            android:title="@string/network_storage_clear_cache"
+            app:iconSpaceReserved="false"
+            android:persistent="false"/>
+
+    </PreferenceCategory>
+
+</PreferenceScreen>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Network storage (WebDAV) and local NAS shares are commonly served over plain
+         HTTP on a LAN, with an arbitrary host name or IP that cannot be whitelisted ahead
+         of time. Allow cleartext for all hosts so SMB/FTP/WebDAV shares work, otherwise
+         Android 9+ blocks every http:// request with UnknownServiceException. -->
+    <base-config cleartextTrafficPermitted="true" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">thumbnails.libretro.com</domain>
+    </domain-config>
+</network-security-config>

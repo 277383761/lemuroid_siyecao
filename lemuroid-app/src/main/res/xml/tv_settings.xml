@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    android:title="@string/settings"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory
+        android:title="@string/settings_category_general"
+        app:iconSpaceReserved="false">
+
+        <SwitchPreference
+            android:key="@string/pref_key_autosave"
+            android:title="@string/settings_title_enable_autosave"
+            app:iconSpaceReserved="false"
+            android:defaultValue="true"/>
+
+        <SwitchPreference
+            android:key="@string/pref_key_hd_mode"
+            android:title="@string/settings_title_hd_mode"
+            android:summary="@string/settings_description_hd_mode"
+            app:iconSpaceReserved="false"
+            app:disableDependentsState="true"
+            android:defaultValue="false"/>
+
+        <ListPreference
+            android:key="@string/pref_key_shader_filter"
+            android:title="@string/display_filter"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true"
+            android:entries="@array/pref_key_shader_filter_display_names"
+            app:entryValues="@array/pref_key_shader_filter_values"
+            app:dependency="@string/pref_key_hd_mode"
+            android:defaultValue="auto"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:title="@string/settings_category_input"
+        app:iconSpaceReserved="false">
+
+        <PreferenceScreen
+            android:key="@string/pref_key_open_gamepad_settings"
+            android:summary="@string/settings_description_gamepad_settings"
+            app:iconSpaceReserved="false"
+            android:title="@string/settings_title_gamepad_settings"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:title="@string/settings_category_misc"
+        app:iconSpaceReserved="false">
+
+        <PreferenceScreen
+            android:key="@string/pref_key_open_save_sync_settings"
+            android:title="@string/settings_title_save_sync"
+            app:summary="@string/settings_description_save_sync"
+            app:iconSpaceReserved="false"/>
+
+        <PreferenceScreen
+            android:key="@string/pref_key_open_network_storage"
+            android:title="@string/settings_title_network_storage"
+            app:summary="@string/settings_description_network_storage"
+            app:iconSpaceReserved="false">
+
+            <PreferenceCategory
+                android:title="@string/settings_title_network_storage"
+                app:iconSpaceReserved="false">
+
+                <SwitchPreference
+                    android:key="@string/pref_key_network_storage_enabled"
+                    android:title="@string/network_storage_enabled"
+                    app:iconSpaceReserved="false"
+                    android:defaultValue="false"/>
+
+                <ListPreference
+                    android:key="@string/pref_key_network_storage_protocol"
+                    android:title="@string/network_storage_protocol"
+                    android:entries="@array/network_storage_protocol_display_names"
+                    android:entryValues="@array/network_storage_protocol_values"
+                    app:iconSpaceReserved="false"
+                    app:useSimpleSummaryProvider="true"
+                    android:defaultValue="SMB"/>
+
+                <EditTextPreference
+                    android:key="@string/pref_key_network_storage_host"
+                    android:title="@string/network_storage_host"
+                    app:iconSpaceReserved="false"
+                    app:useSimpleSummaryProvider="true"/>
+
+                <EditTextPreference
+                    android:key="@string/pref_key_network_storage_port"
+                    android:title="@string/network_storage_port"
+                    app:iconSpaceReserved="false"
+                    app:useSimpleSummaryProvider="true"
+                    android:defaultValue="0"/>
+
+                <EditTextPreference
+                    android:key="@string/pref_key_network_storage_username"
+                    android:title="@string/network_storage_username"
+                    app:iconSpaceReserved="false"
+                    app:useSimpleSummaryProvider="true"/>
+
+                <EditTextPreference
+                    android:key="@string/pref_key_network_storage_password"
+                    android:title="@string/network_storage_password"
+                    app:iconSpaceReserved="false"
+                    app:useSimpleSummaryProvider="false"
+                    android:inputType="textPassword"/>
+
+                <EditTextPreference
+                    android:key="@string/pref_key_network_storage_remote_path"
+                    android:title="@string/network_storage_remote_path"
+                    app:iconSpaceReserved="false"
+                    app:useSimpleSummaryProvider="true"/>
+
+                <Preference
+                    android:key="@string/pref_key_network_storage_test_connection"
+                    android:title="@string/network_storage_test_connection"
+                    app:iconSpaceReserved="false"
+                    android:persistent="false"/>
+
+                <Preference
+                    android:key="@string/pref_key_network_storage_clear_cache"
+                    android:title="@string/network_storage_clear_cache"
+                    app:iconSpaceReserved="false"
+                    android:persistent="false"/>
+
+            </PreferenceCategory>
+
+        </PreferenceScreen>
+
+        <PreferenceScreen
+            android:key="@string/pref_key_open_cores_selection"
+            android:title="@string/settings_title_open_cores_selection"
+            app:summary="@string/settings_description_open_cores_selection"
+            app:iconSpaceReserved="false"/>
+
+        <PreferenceScreen
+            android:key="@string/pref_key_display_bios_info"
+            android:title="@string/settings_title_display_bios_info"
+            app:summary="@string/settings_description_display_bios_info"
+            app:iconSpaceReserved="false"/>
+
+        <PreferenceScreen
+            android:key="@string/pref_key_advanced_settings"
+            android:title="@string/settings_title_advanced_settings"
+            android:summary="@string/settings_description_advanced_settings"
+            app:iconSpaceReserved="false">
+
+            <PreferenceCategory
+                android:title="@string/settings_category_input"
+                app:iconSpaceReserved="false">
+
+                <SwitchPreference
+                    android:key="@string/pref_key_enable_rumble"
+                    android:title="@string/settings_title_enable_rumble"
+                    android:summary="@string/settings_description_enable_rumble"
+                    app:iconSpaceReserved="false"
+                    android:defaultValue="false"/>
+
+            </PreferenceCategory>
+
+            <PreferenceCategory
+                android:title="@string/settings_category_general"
+                app:iconSpaceReserved="false">
+
+                <SwitchPreference
+                    android:key="@string/pref_key_low_latency_audio"
+                    android:title="@string/settings_title_low_latency_audio"
+                    android:summary="@string/settings_description_low_latency_audio"
+                    app:iconSpaceReserved="false"
+                    android:defaultValue="false"/>
+
+                <ListPreference
+                    android:key="@string/pref_key_max_cache_size"
+                    android:title="@string/settings_title_maximum_cache_usage"
+                    app:iconSpaceReserved="false"/>
+
+                <SwitchPreference
+                    android:key="@string/pref_key_allow_direct_game_load"
+                    android:title="@string/settings_title_direct_game_load"
+                    android:summary="@string/settings_description_direct_game_load"
+                    app:iconSpaceReserved="false"
+                    android:defaultValue="true"/>
+
+                <SwitchPreference
+                    android:key="@string/pref_key_legacy_hd_mode"
+                    android:title="@string/settings_title_legacy_hd_mode"
+                    android:summary="@string/settings_description_legacy_hd_mode"
+                    app:iconSpaceReserved="false"
+                    android:defaultValue="false"/>
+
+                <Preference
+                    android:key="@string/pref_key_reset_settings"
+                    android:title="@string/settings_title_reset_settings"
+                    app:summary="@string/settings_description_reset_settings"
+                    app:iconSpaceReserved="false"/>
+
+            </PreferenceCategory>
+
+        </PreferenceScreen>
+
+        <Preference
+            android:key="@string/pref_key_disabled_systems"
+            android:title="@string/settings_title_disabled_systems"
+            app:summary="@string/settings_description_disabled_systems"
+            app:iconSpaceReserved="false"
+            android:persistent="false"/>
+
+    </PreferenceCategory>
+
+    <Preference
+        android:key="@string/pref_key_donate"
+        android:title="@string/settings_title_donate"
+        android:summary="@string/settings_description_donate"
+        app:iconSpaceReserved="false"
+        android:persistent="false"/>
+
+</PreferenceScreen>

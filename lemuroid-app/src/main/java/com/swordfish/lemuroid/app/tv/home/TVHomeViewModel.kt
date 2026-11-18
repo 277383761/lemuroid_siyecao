@@ -1,0 +1,136 @@
+package com.swordfish.lemuroid.app.tv.home
+
+import android.content.Context
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.asFlow
+import androidx.lifecycle.viewModelScope
+import com.swordfish.lemuroid.app.shared.library.PendingOperationsMonitor
+import com.swordfish.lemuroid.app.shared.systems.DisabledSystemsPreferences
+import com.swordfish.lemuroid.app.shared.systems.MetaSystemInfo
+import com.swordfish.lemuroid.lib.library.GameSystem
+import com.swordfish.lemuroid.lib.library.MetaSystemID
+import com.swordfish.lemuroid.lib.library.db.RetrogradeDatabase
+import com.swordfish.lemuroid.lib.library.db.entity.Game
+import com.swordfish.lemuroid.lib.library.metaSystemID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+
+@OptIn(FlowPreview::class)
+class TVHomeViewModel(
+    retrogradeDb: RetrogradeDatabase,
+    private val appContext: Context
+) : ViewModel() {
+
+    companion object {
+        const val CAROUSEL_MAX_ITEMS = 10
+        const val DEBOUNCE_TIME = 100L
+    }
+
+    class Factory(
+        val retrogradeDb: RetrogradeDatabase,
+        val appContext: Context
+    ) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            return TVHomeViewModel(retrogradeDb, appContext) as T
+        }
+    }
+
+    private val disabledSystems = MutableStateFlow(
+        DisabledSystemsPreferences.disabledSystemIds(appContext)
+    )
+
+    private val availableSystems: Flow<List<MetaSystemInfo>> = combine(
+        retrogradeDb.gameDao().selectSystemsWithCount(),
+        disabledSystems
+    ) { systemCounts, disabled ->
+        val metaSystems = systemCounts.asSequence()
+            .filter { (_, count) -> count > 0 }
+            .map { (systemId, count) -> GameSystem.findById(systemId).metaSystemID() to count }
+            .groupBy { (metaSystemId, _) -> metaSystemId }
+            .map { (metaSystemId, counts) ->
+                val isDisabled = metaSystemId.systemIDs.all { it.dbname in disabled }
+                MetaSystemInfo(metaSystemId, counts.sumOf { it.second }, isDisabled)
+            }
+            .sortedBy { it.getName(appContext) }
+            .toList()
+
+        // Disabled systems stay in the row but their games are excluded from "All games".
+        val visibleCount = metaSystems.filter { !it.isDisabled }.sumOf { it.count }
+        listOf(MetaSystemInfo(MetaSystemID.ALL, visibleCount)) + metaSystems
+    }
+
+    /** Re-reads the disabled systems after the user hides one from the home screen. */
+    fun refreshDisabledSystems() {
+        disabledSystems.value = DisabledSystemsPreferences.disabledSystemIds(appContext)
+    }
+
+    data class HomeViewState(
+        val favoritesGames: List<Game> = emptyList(),
+        val recentGames: List<Game> = emptyList(),
+        val metaSystems: List<MetaSystemInfo> = emptyList(),
+        val indexInProgress: Boolean = false,
+        val scanInProgress: Boolean = false
+    )
+
+    private val viewStates = MutableStateFlow(HomeViewState())
+
+    fun getViewStates(): Flow<HomeViewState> {
+        return viewStates
+    }
+
+    private fun buildViewState(
+        favoritesGames: List<Game>,
+        recentGames: List<Game>,
+        metaSystems: List<MetaSystemInfo>,
+        indexInProgress: Boolean,
+        scanInProgress: Boolean
+    ): HomeViewState {
+        return HomeViewState(
+            favoritesGames,
+            recentGames,
+            metaSystems,
+            indexInProgress,
+            scanInProgress
+        )
+    }
+
+    init {
+        viewModelScope.launch {
+            val uiStatesFlow = combine(
+                favoriteGames(retrogradeDb),
+                recentGames(retrogradeDb),
+                availableSystems,
+                indexingInProgress(appContext),
+                directoryScanInProgress(appContext),
+                ::buildViewState
+            )
+
+            uiStatesFlow
+                .debounce(DEBOUNCE_TIME)
+                .flowOn(Dispatchers.IO)
+                .collect { viewStates.value = it }
+        }
+    }
+
+    private fun directoryScanInProgress(appContext: Context) =
+        PendingOperationsMonitor(appContext).isDirectoryScanInProgress().asFlow()
+
+    private fun indexingInProgress(appContext: Context) =
+        PendingOperationsMonitor(appContext).anyLibraryOperationInProgress().asFlow()
+
+    private fun favoriteGames(retrogradeDb: RetrogradeDatabase) =
+        retrogradeDb.gameDao()
+            .selectFirstFavoritesRecents(CAROUSEL_MAX_ITEMS + 1)
+
+    private fun recentGames(retrogradeDb: RetrogradeDatabase) =
+        retrogradeDb.gameDao()
+            .selectFirstUnfavoriteRecents(CAROUSEL_MAX_ITEMS)
+}
