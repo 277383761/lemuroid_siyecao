@@ -970,7 +970,14 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         loadingStatesFlow
             .flowOn(Dispatchers.IO)
             .catch {
-                displayGameLoaderError((it as GameLoaderException).error, systemCoreConfig)
+                val error = (it as? GameLoaderException)?.error
+                if (error != null) {
+                    displayGameLoaderError(error, systemCoreConfig)
+                } else {
+                    // Fallback for unexpected throwables (e.g. NoClassDefFoundError that escaped).
+                    Timber.e(it, "Unexpected error during game load")
+                    displayGameLoaderError(GameLoaderError.Generic, systemCoreConfig)
+                }
             }
             .collect { loadingState ->
                 displayLoadingState(loadingState)

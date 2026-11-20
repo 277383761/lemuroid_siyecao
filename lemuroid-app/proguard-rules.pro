@@ -82,3 +82,20 @@
 
 ## LibretroDroid
 -keep class com.swordfish.libretrodroid.** { *; }
+
+## Media3 / ExoPlayer
+# AudioCapabilitiesReceiver.AudioDeviceCallbackV23 extends android.media.AudioDeviceCallback
+# which was added in API 23. On Android 5 (API 21) this causes NoClassDefFoundError
+# when the class is loaded. Since we only use ExoPlayer for mute game preview videos,
+# the audio sink and audio capability listening are not needed. Tell R8 these calls
+# have no side effects so it can strip them out.
+-dontwarn android.media.AudioDeviceCallback
+-dontwarn android.media.AudioDeviceInfo
+-assumenosideeffects class androidx.media3.exoplayer.audio.AudioCapabilitiesReceiver {
+    public <init>(...);
+    public *** register();
+    public void unregister();
+}
+-assumenosideeffects class androidx.media3.exoplayer.audio.DefaultAudioSink {
+    *;
+}

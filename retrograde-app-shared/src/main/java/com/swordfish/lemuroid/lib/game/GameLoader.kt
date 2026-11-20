@@ -129,8 +129,10 @@ class GameLoader(
         } catch (e: GameLoaderException) {
             Timber.e(e, "Error while preparing game")
             throw e
-        } catch (e: Exception) {
-            Timber.e(e, "Error while preparing game")
+        } catch (e: Throwable) {
+            // Catch Error too (e.g. NoClassDefFoundError on Android 5) so we can log the
+            // exact missing class instead of letting it propagate as a confusing cast error.
+            Timber.e(e, "Error while preparing game (type=%s, msg=%s)", e.javaClass.name, e.message)
             throw GameLoaderException(GameLoaderError.Generic)
         }
     }
