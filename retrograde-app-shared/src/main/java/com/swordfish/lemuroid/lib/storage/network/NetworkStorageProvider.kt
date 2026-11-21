@@ -159,16 +159,20 @@ class NetworkStorageProvider(private val context: Context) : StorageProvider {
         synchronized(lockFor(cacheFile)) {
             val uri = Uri.parse(game.fileUri)
             val remotePath = getRemotePath(uri)
-            val originalFile = File(uri.lastPathSegment ?: game.fileName)
+            // Prefer the file downloaded by the offline sync: library entries created before the
+            // sync then keep working when the server is unreachable.
+            val localFile = NetworkStoragePreferences.localSyncedFile(context, remotePath)
+            val originalFile = localFile ?: File(uri.lastPathSegment ?: game.fileName)
 
             if (!originalFile.isZipped()) {
+                if (localFile != null) return localFile
                 if (cacheFile.length() > 0) return cacheFile
                 downloadAtomic(client, remotePath, cacheFile)
                 return cacheFile
             }
 
-            val zipCache = File(cacheFile.parentFile, originalFile.name)
-            if (zipCache.length() == 0L) {
+            val zipCache = localFile ?: File(cacheFile.parentFile, originalFile.name)
+            if (localFile == null && zipCache.length() == 0L) {
                 downloadAtomic(client, remotePath, zipCache)
             }
 
@@ -210,9 +214,9 @@ class NetworkStorageProvider(private val context: Context) : StorageProvider {
     private fun getDataFile(client: NetworkClient, game: Game, dataFile: DataFile): File {
         val cacheFile = getDataFileForGame(game, dataFile)
         synchronized(lockFor(cacheFile)) {
+            val remotePath = getRemotePath(Uri.parse(dataFile.fileUri))
+            NetworkStoragePreferences.localSyncedFile(context, remotePath)?.let { return it }
             if (cacheFile.exists()) return cacheFile
-            val uri = Uri.parse(dataFile.fileUri)
-            val remotePath = getRemotePath(uri)
             downloadAtomic(client, remotePath, cacheFile)
             return cacheFile
         }
@@ -248,11 +252,15 @@ class NetworkStorageProvider(private val context: Context) : StorageProvider {
     }
 
     override fun getInputStream(uri: Uri): InputStream? {
+        val remotePath = getRemotePath(uri)
+        NetworkStoragePreferences.localSyncedFile(context, remotePath)?.let {
+            return runCatching { it.inputStream() }.getOrNull()
+        }
         val config = currentConfig()
         if (!config.isConfigured) return null
         val client = NetworkClientFactory.create(config)
         return try {
-            val remoteStream = client.getInputStream(getRemotePath(uri)) ?: return null
+            val remoteStream = client.getInputStream(remotePath) ?: return null
             // Read fully into memory so the network client can be closed immediately.
             // getInputStream is only used during indexing to read small metadata files
             // (m3u/cue), so buffering the entire content is acceptable.

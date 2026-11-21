@@ -2,6 +2,7 @@ package com.swordfish.lemuroid.lib.storage.network
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.swordfish.lemuroid.lib.R
 import com.swordfish.lemuroid.lib.preferences.SharedPreferencesHelper
 import java.io.File
 
@@ -66,6 +67,30 @@ object NetworkStoragePreferences {
         listOf(NETWORK_GAMES_CACHE_DIR, "network-games", NETWORK_COVERS_CACHE_DIR).forEach { sub ->
             runCatching { File(cacheRoot, sub).deleteRecursively() }
         }
+    }
+
+    /** Root of the local ROM library, which is also the destination of the offline sync. */
+    fun romsDirectory(context: Context): File {
+        val preferenceKey = context.getString(R.string.pref_key_legacy_external_folder)
+        val configured = SharedPreferencesHelper.getLegacySharedPreferences(context)
+            .getString(preferenceKey, null)
+        return configured?.takeIf { it.isNotBlank() }?.let(::File) ?: File("/sdcard/roms")
+    }
+
+    /** File already synced to the local ROM directory, or null when it is not there yet. */
+    fun localSyncedFile(context: Context, remotePath: String): File? {
+        val root = load(context).remotePath.replace('\\', '/').trim('/')
+        val fullPath = remotePath.replace('\\', '/').trim('/')
+        val relative = when {
+            root.isEmpty() -> fullPath
+            fullPath == root -> return null
+            fullPath.startsWith("$root/") -> fullPath.substring(root.length + 1)
+            else -> return null
+        }
+        val segments = relative.split('/').filter { it.isNotEmpty() && it != "." }
+        if (segments.isEmpty() || segments.any { it == ".." }) return null
+        val file = File(romsDirectory(context), segments.joinToString("/"))
+        return file.takeIf { it.isFile }
     }
 
     const val NETWORK_GAMES_CACHE_DIR = "network-games-v2"

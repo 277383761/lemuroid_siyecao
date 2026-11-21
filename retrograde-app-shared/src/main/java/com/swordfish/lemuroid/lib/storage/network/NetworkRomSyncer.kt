@@ -2,10 +2,8 @@ package com.swordfish.lemuroid.lib.storage.network
 
 import android.content.Context
 import android.os.StatFs
-import com.swordfish.lemuroid.lib.R
 import com.swordfish.lemuroid.lib.library.GameSystem
 import com.swordfish.lemuroid.lib.library.SystemID
-import com.swordfish.lemuroid.lib.preferences.SharedPreferencesHelper
 import java.io.File
 import java.io.IOException
 import java.util.Locale
@@ -292,12 +290,7 @@ class NetworkRomSyncer(private val context: Context) {
 
     private fun parentPath(path: String): String = path.substringBeforeLast('/', "")
 
-    private fun getRomsDirectory(): File {
-        val preferenceKey = context.getString(R.string.pref_key_legacy_external_folder)
-        val configured = SharedPreferencesHelper.getLegacySharedPreferences(context)
-            .getString(preferenceKey, null)
-        return configured?.takeIf { it.isNotBlank() }?.let(::File) ?: File("/sdcard/roms")
-    }
+    private fun getRomsDirectory(): File = NetworkStoragePreferences.romsDirectory(context)
 
     private fun safeLocalFile(root: File, relativePath: String): File {
         val file = File(root, relativePath)
