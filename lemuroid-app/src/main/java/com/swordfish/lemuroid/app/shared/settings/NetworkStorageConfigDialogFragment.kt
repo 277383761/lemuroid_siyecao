@@ -3,13 +3,14 @@ package com.swordfish.lemuroid.app.shared.settings
 import android.app.Dialog
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.RadioGroup
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.DialogFragment
-import com.google.android.material.textfield.TextInputLayout
 import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.lib.storage.network.NetworkProtocol
 import com.swordfish.lemuroid.lib.storage.network.NetworkStoragePreferences
@@ -18,15 +19,15 @@ class NetworkStorageConfigDialogFragment : DialogFragment() {
 
     private lateinit var fields: List<EditText>
     private lateinit var protocolGroup: RadioGroup
-    private lateinit var hostLayout: TextInputLayout
-    private lateinit var portLayout: TextInputLayout
+    private lateinit var hostError: TextView
+    private lateinit var portError: TextView
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val config = NetworkStoragePreferences.load(requireContext())
         val view = layoutInflater.inflate(R.layout.dialog_network_storage_config, null)
         protocolGroup = view.findViewById(R.id.network_protocol_group)
-        hostLayout = view.findViewById(R.id.network_host_layout)
-        portLayout = view.findViewById(R.id.network_port_layout)
+        hostError = view.findViewById(R.id.network_host_error)
+        portError = view.findViewById(R.id.network_port_error)
         fields = listOf(
             view.findViewById(R.id.network_host_input),
             view.findViewById(R.id.network_port_input),
@@ -115,19 +116,19 @@ class NetworkStorageConfigDialogFragment : DialogFragment() {
     private fun saveConfig(): Boolean {
         val host = fields[0].text.toString().trim()
         if (host.isEmpty()) {
-            hostLayout.error = getString(R.string.network_storage_host_required)
+            showError(hostError, R.string.network_storage_host_required)
             fields[0].requestFocus()
             return false
         }
-        hostLayout.error = null
+        hideError(hostError)
 
         val port = fields[1].text.toString().trim().toIntOrNull()
         if (port == null || port !in 0..65535) {
-            portLayout.error = getString(R.string.network_storage_port_invalid)
+            showError(portError, R.string.network_storage_port_invalid)
             fields[1].requestFocus()
             return false
         }
-        portLayout.error = null
+        hideError(portError)
 
         val protocol = when (protocolGroup.checkedRadioButtonId) {
             R.id.network_protocol_ftp -> NetworkProtocol.FTP
@@ -149,6 +150,15 @@ class NetworkStorageConfigDialogFragment : DialogFragment() {
         parentFragmentManager.setFragmentResult(RESULT_KEY, Bundle.EMPTY)
         Toast.makeText(requireContext(), R.string.network_storage_saved, Toast.LENGTH_SHORT).show()
         return true
+    }
+
+    private fun showError(target: TextView, messageRes: Int) {
+        target.setText(messageRes)
+        target.visibility = View.VISIBLE
+    }
+
+    private fun hideError(target: TextView) {
+        target.visibility = View.GONE
     }
 
     companion object {

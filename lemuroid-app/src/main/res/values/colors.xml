@@ -2,4 +2,5 @@
 <resources>
     <color name="edit_control_overlay">#99000000</color>
     <color name="imageview_background">#09ffffff</color>
+    <color name="network_storage_error">#FF5252</color>
 </resources>

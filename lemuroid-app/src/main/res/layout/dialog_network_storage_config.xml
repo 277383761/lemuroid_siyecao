@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Plain framework widgets only: this dialog is also shown on Android TV, whose
+     Theme.Leanback is not a Material Components theme and would crash when inflating
+     TextInputLayout or Material-only text appearances. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:fillViewport="true"
@@ -19,7 +21,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/network_storage_config_description"
-            android:textAppearance="?attr/textAppearanceBodyMedium" />
+            android:textAppearance="?android:attr/textAppearanceMedium" />
 
         <RadioGroup
             android:id="@+id/network_protocol_group"
@@ -50,99 +52,100 @@
                 android:text="WebDAV" />
         </RadioGroup>
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/network_host_layout"
+        <EditText
+            android:id="@+id/network_host_input"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:hint="@string/network_storage_host"
-            app:boxBackgroundMode="outline"
-            app:helperText="@string/network_storage_host_helper">
+            android:imeOptions="actionNext"
+            android:inputType="textUri"
+            android:maxLines="1"
+            android:nextFocusForward="@id/network_port_input"
+            android:singleLine="true" />
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/network_host_input"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:imeOptions="actionNext"
-                android:inputType="textUri"
-                android:maxLines="1"
-                android:nextFocusForward="@id/network_port_input"
-                android:singleLine="true" />
-        </com.google.android.material.textfield.TextInputLayout>
+        <TextView
+            android:id="@+id/network_host_helper"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/network_storage_host_helper"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/network_port_layout"
+        <TextView
+            android:id="@+id/network_host_error"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="?android:attr/textAppearanceSmall"
+            android:textColor="@color/network_storage_error"
+            android:visibility="gone" />
+
+        <EditText
+            android:id="@+id/network_port_input"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:hint="@string/network_storage_port"
-            app:boxBackgroundMode="outline"
-            app:helperText="@string/network_storage_port_helper">
+            android:imeOptions="actionNext"
+            android:inputType="number"
+            android:maxLines="1"
+            android:nextFocusForward="@id/network_username_input"
+            android:singleLine="true" />
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/network_port_input"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:imeOptions="actionNext"
-                android:inputType="number"
-                android:maxLines="1"
-                android:nextFocusForward="@id/network_username_input"
-                android:singleLine="true" />
-        </com.google.android.material.textfield.TextInputLayout>
+        <TextView
+            android:id="@+id/network_port_helper"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/network_storage_port_helper"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
 
-        <com.google.android.material.textfield.TextInputLayout
+        <TextView
+            android:id="@+id/network_port_error"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="?android:attr/textAppearanceSmall"
+            android:textColor="@color/network_storage_error"
+            android:visibility="gone" />
+
+        <EditText
+            android:id="@+id/network_username_input"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:hint="@string/network_storage_username"
-            app:boxBackgroundMode="outline">
+            android:imeOptions="actionNext"
+            android:inputType="text"
+            android:maxLines="1"
+            android:nextFocusForward="@id/network_password_input"
+            android:singleLine="true" />
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/network_username_input"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:imeOptions="actionNext"
-                android:inputType="text"
-                android:maxLines="1"
-                android:nextFocusForward="@id/network_password_input"
-                android:singleLine="true" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
+        <EditText
+            android:id="@+id/network_password_input"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:hint="@string/network_storage_password"
-            app:boxBackgroundMode="outline"
-            app:endIconMode="none">
+            android:imeOptions="actionNext"
+            android:inputType="textPassword"
+            android:maxLines="1"
+            android:nextFocusForward="@id/network_remote_path_input"
+            android:singleLine="true" />
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/network_password_input"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:imeOptions="actionNext"
-                android:inputType="textPassword"
-                android:maxLines="1"
-                android:nextFocusForward="@id/network_remote_path_input"
-                android:singleLine="true" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
+        <EditText
+            android:id="@+id/network_remote_path_input"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:hint="@string/network_storage_remote_path"
-            app:boxBackgroundMode="outline"
-            app:helperText="@string/network_storage_remote_path_helper">
+            android:imeOptions="actionDone"
+            android:inputType="textUri"
+            android:maxLines="1"
+            android:singleLine="true" />
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/network_remote_path_input"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:imeOptions="actionDone"
-                android:inputType="textUri"
-                android:maxLines="1"
-                android:singleLine="true" />
-        </com.google.android.material.textfield.TextInputLayout>
+        <TextView
+            android:id="@+id/network_remote_path_helper"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/network_storage_remote_path_helper"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
     </LinearLayout>
 </ScrollView>
