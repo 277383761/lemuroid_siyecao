@@ -7,7 +7,6 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
-import androidx.preference.MultiSelectListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.TwoStatePreference
@@ -60,68 +59,11 @@ object NetworkStorageSettingsUi {
             }
         }
 
-        val excludedSystemsPreference = fragment.findPreference<MultiSelectListPreference>(
-            context.getString(R.string.pref_key_network_storage_sync_excluded_systems)
-        )
-        fun loadExcludedSystems() {
-            val preference = excludedSystemsPreference ?: return
-            if (!NetworkStoragePreferences.load(context).isConfigured) {
-                preference.isEnabled = false
-                preference.summary =
-                    context.getString(R.string.network_storage_sync_excluded_not_configured)
-                return
-            }
-            val saved = NetworkStoragePreferences.loadExcludedSystemIds(context)
-            preference.values = saved.toMutableSet()
-            preference.isEnabled = false
-            preference.summary = context.getString(R.string.network_storage_sync_excluded_loading)
-            syncManager.loadAvailableSystems { systems ->
-                if (fragment.view == null) return@loadAvailableSystems
-                when {
-                    systems == null -> {
-                        preference.summary =
-                            context.getString(R.string.network_storage_sync_excluded_load_failed)
-                    }
-                    systems.isEmpty() -> {
-                        preference.entries = emptyArray()
-                        preference.entryValues = emptyArray()
-                        preference.summary =
-                            context.getString(R.string.network_storage_sync_excluded_empty)
-                    }
-                    else -> {
-                        preference.entries =
-                            systems.map { context.getString(it.titleResId) }.toTypedArray()
-                        preference.entryValues = systems.map { it.id.dbname }.toTypedArray()
-                        val available = systems.map { it.id.dbname }.toSet()
-                        val effective = saved intersect available
-                        if (effective != saved) {
-                            NetworkStoragePreferences.saveExcludedSystemIds(context, effective)
-                        }
-                        preference.values = effective.toMutableSet()
-                        preference.summary = excludedSummary(context, effective)
-                        preference.isEnabled = true
-                    }
-                }
-            }
-        }
-        excludedSystemsPreference?.apply {
-            isPersistent = false
-            setOnPreferenceChangeListener { preference, newValue ->
-                @Suppress("UNCHECKED_CAST")
-                val excluded = newValue as? Set<String> ?: emptySet()
-                NetworkStoragePreferences.saveExcludedSystemIds(context, excluded)
-                (preference as MultiSelectListPreference).summary =
-                    excludedSummary(context, excluded)
-                true
-            }
-        }
-
         fragment.childFragmentManager.setFragmentResultListener(
             NetworkStorageConfigDialogFragment.RESULT_KEY,
             fragment.viewLifecycleOwner
         ) { _, _ ->
             refreshConnectionSummary(fragment)
-            loadExcludedSystems()
             updateSyncState(fragment, syncManager.state.value)
         }
 
@@ -162,17 +104,8 @@ object NetworkStorageSettingsUi {
         }
 
         refreshConnectionSummary(fragment)
-        loadExcludedSystems()
         fragment.launchOnState(Lifecycle.State.RESUMED) {
             syncManager.state.collect { state -> updateSyncState(fragment, state) }
-        }
-    }
-
-    private fun excludedSummary(context: android.content.Context, excluded: Set<String>): String {
-        return if (excluded.isEmpty()) {
-            context.getString(R.string.network_storage_sync_excluded_none)
-        } else {
-            context.getString(R.string.network_storage_sync_excluded_count, excluded.size)
         }
     }
 

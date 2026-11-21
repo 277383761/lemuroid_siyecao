@@ -91,10 +91,11 @@
                 android:title="@string/network_storage_sync_category"
                 app:iconSpaceReserved="false">
 
-                <MultiSelectListPreference
-                    android:key="@string/pref_key_network_storage_sync_excluded_systems"
-                    android:title="@string/network_storage_sync_excluded_systems"
-                    android:persistent="false"
+                <Preference
+                    android:key="@string/pref_key_network_storage_sync_enabled_hint"
+                    android:title="@string/network_storage_sync_enabled_hint"
+                    android:summary="@string/network_storage_sync_enabled_hint_summary"
+                    android:selectable="false"
                     app:iconSpaceReserved="false"/>
 
                 <SwitchPreference

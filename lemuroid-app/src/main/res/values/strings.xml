@@ -120,13 +120,8 @@
     <string name="network_storage_maintenance">缓存与维护</string>
     <string name="network_storage_sync_category">离线同步</string>
     <string name="network_storage_sync_enabled">启用离线同步</string>
-    <string name="network_storage_sync_excluded_systems">不同步的主机</string>
-    <string name="network_storage_sync_excluded_none">完整同步网络目录里的全部主机</string>
-    <string name="network_storage_sync_excluded_count">已排除 %1$d 个主机，其余完整同步</string>
-    <string name="network_storage_sync_excluded_loading">正在读取网络目录中已有的主机…</string>
-    <string name="network_storage_sync_excluded_not_configured">请先填写服务器信息</string>
-    <string name="network_storage_sync_excluded_load_failed">无法读取网络目录，请检查连接后重新进入</string>
-    <string name="network_storage_sync_excluded_empty">网络目录中暂未识别到主机</string>
+    <string name="network_storage_sync_enabled_hint">跳过已禁用的主机</string>
+    <string name="network_storage_sync_enabled_hint_summary">在“主机显示”里禁用的主机不会同步到本地；其余主机完整同步</string>
     <string name="network_storage_sync_enabled_summary">开启后立即把网络 ROM 完整同步到本地 ROM 目录；源里删除的游戏会同步清理，本地自有 ROM 不受影响</string>
     <string name="network_storage_sync_now">立即同步 / 补全游戏</string>
     <string name="network_storage_sync_idle">以网络源为准完整同步到本地 ROM 目录，只清理同步下载过的文件</string>

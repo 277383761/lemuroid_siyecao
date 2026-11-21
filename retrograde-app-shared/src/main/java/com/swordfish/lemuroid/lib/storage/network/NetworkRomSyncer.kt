@@ -45,7 +45,7 @@ class NetworkRomSyncer(private val context: Context) {
     private data class RemoteFile(val path: String, val relativePath: String, val size: Long)
 
     suspend fun sync(
-        excludedSystemIds: Set<String>,
+        disabledSystemIds: Set<String>,
         onProgress: (Progress) -> Unit
     ): Result {
         val config = NetworkStoragePreferences.load(context)
@@ -58,12 +58,12 @@ class NetworkRomSyncer(private val context: Context) {
             check(connected) { "无法连接网络目录，已保留原有本地 ROM" }
             val remoteFiles = listRemoteFiles(client, config.remotePath)
             val systems = resolveSystems(remoteFiles)
-            val selectedFiles = if (excludedSystemIds.isEmpty()) {
+            val selectedFiles = if (disabledSystemIds.isEmpty()) {
                 remoteFiles
             } else {
                 remoteFiles.filter { file ->
                     val system = systems[file.relativePath]
-                    system == null || system.dbname !in excludedSystemIds
+                    system == null || system.dbname !in disabledSystemIds
                 }
             }
             val romsRoot = getRomsDirectory()
@@ -146,7 +146,12 @@ class NetworkRomSyncer(private val context: Context) {
             }
 
             coroutineContext.ensureActive()
-            val deletedFiles = deleteStaleFiles(romsRoot, expectedFiles.keys, managedFiles)
+            val deletedFiles = deleteStaleFiles(
+                romsRoot,
+                expectedFiles.keys,
+                managedFiles,
+                disabledSystemIds
+            )
             // Remove the mirror directory created by older versions to avoid duplicate entries.
             val legacyMirror = File(romsRoot, LEGACY_MIRROR_DIRECTORY)
             if (legacyMirror.isDirectory) {
@@ -154,22 +159,6 @@ class NetworkRomSyncer(private val context: Context) {
             }
             saveManifest(manifestKey, managedFiles)
             return Result(downloadedFiles, skippedFiles, deletedFiles)
-        } finally {
-            runCatching { client.close() }
-        }
-    }
-
-    /** Lists the systems that actually have files in the remote directory. */
-    suspend fun listAvailableSystems(): List<GameSystem> {
-        val config = NetworkStoragePreferences.load(context)
-        check(config.isConfigured) { "请先启用网络存储并填写服务器地址" }
-        val client = NetworkClientFactory.create(config)
-        try {
-            val connected = runInterruptible { client.testConnection() }
-            check(connected) { "无法连接网络目录" }
-            val remoteFiles = listRemoteFiles(client, config.remotePath)
-            val present = resolveSystems(remoteFiles).values.toSet()
-            return GameSystem.all().filter { it.id in present }
         } finally {
             runCatching { client.close() }
         }
@@ -242,11 +231,15 @@ class NetworkRomSyncer(private val context: Context) {
     private fun deleteStaleFiles(
         root: File,
         expectedPaths: Set<String>,
-        managedFiles: MutableSet<String>
+        managedFiles: MutableSet<String>,
+        disabledSystemIds: Set<String>
     ): Int {
         var deletedFiles = 0
         val stale = managedFiles.filterNot { it in expectedPaths }
         for (relativePath in stale) {
+            // Disabled systems are skipped, not wiped: keep whatever was synced before.
+            val system = directSystem(relativePath)?.dbname
+            if (system != null && system in disabledSystemIds) continue
             val file = runCatching { safeLocalFile(root, relativePath) }.getOrNull()
             if (file == null) {
                 managedFiles.remove(relativePath)

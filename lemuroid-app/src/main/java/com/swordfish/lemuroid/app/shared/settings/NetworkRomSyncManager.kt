@@ -1,10 +1,9 @@
 package com.swordfish.lemuroid.app.shared.settings
 
 import android.content.Context
-import com.swordfish.lemuroid.lib.library.GameSystem
+import com.swordfish.lemuroid.app.shared.systems.DisabledSystemsPreferences
 import com.swordfish.lemuroid.lib.library.LemuroidLibrary
 import com.swordfish.lemuroid.lib.storage.network.NetworkRomSyncer
-import com.swordfish.lemuroid.lib.storage.network.NetworkStoragePreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +12,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class NetworkRomSyncManager(
     context: Context,
@@ -36,8 +34,8 @@ class NetworkRomSyncManager(
         mutableState.value = State.Running(NetworkRomSyncer.Progress(NetworkRomSyncer.Stage.SCANNING))
         syncJob = scope.launch {
             try {
-                val excludedSystems = NetworkStoragePreferences.loadExcludedSystemIds(appContext)
-                val result = syncer.sync(excludedSystems) { progress ->
+                val disabledSystems = DisabledSystemsPreferences.disabledSystemIds(appContext)
+                val result = syncer.sync(disabledSystems) { progress ->
                     mutableState.value = State.Running(progress)
                 }
                 mutableState.value = State.Running(
@@ -58,14 +56,6 @@ class NetworkRomSyncManager(
         if (!isRunning) return
         syncJob?.cancel()
         mutableState.value = State.Cancelling
-    }
-
-    /** Scans the remote directory and reports the systems it contains (null when unreachable). */
-    fun loadAvailableSystems(onResult: (List<GameSystem>?) -> Unit) {
-        scope.launch {
-            val systems = runCatching { syncer.listAvailableSystems() }.getOrNull()
-            withContext(Dispatchers.Main) { onResult(systems) }
-        }
     }
 
     sealed class State {

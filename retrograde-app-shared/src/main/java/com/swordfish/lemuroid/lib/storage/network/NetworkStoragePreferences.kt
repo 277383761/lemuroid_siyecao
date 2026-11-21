@@ -15,7 +15,6 @@ object NetworkStoragePreferences {
     private const val KEY_PASSWORD = "network_storage_password"
     private const val KEY_REMOTE_PATH = "network_storage_remote_path"
     private const val KEY_SYNC_ENABLED = "network_storage_sync_enabled"
-    private const val KEY_SYNC_EXCLUDED_SYSTEMS = "network_storage_sync_excluded_systems"
 
     private fun prefs(context: Context): SharedPreferences =
         SharedPreferencesHelper.getSharedPreferences(context)
@@ -50,14 +49,6 @@ object NetworkStoragePreferences {
         prefs(context).edit().putBoolean(KEY_SYNC_ENABLED, enabled).apply()
     }
 
-    /** Systems the user explicitly asked not to sync. An empty set means a complete sync. */
-    fun loadExcludedSystemIds(context: Context): Set<String> =
-        prefs(context).getStringSet(KEY_SYNC_EXCLUDED_SYSTEMS, null)?.toSet() ?: emptySet()
-
-    fun saveExcludedSystemIds(context: Context, systemIds: Set<String>) {
-        prefs(context).edit().putStringSet(KEY_SYNC_EXCLUDED_SYSTEMS, systemIds).apply()
-    }
-
     fun clearCache(context: Context) {
         val cacheRoot = context.cacheDir
         listOf(NETWORK_GAMES_CACHE_DIR, "network-games", NETWORK_COVERS_CACHE_DIR).forEach { sub ->
@@ -77,5 +68,4 @@ object NetworkStoragePreferences {
     const val PREF_KEY_PASSWORD = KEY_PASSWORD
     const val PREF_KEY_REMOTE_PATH = KEY_REMOTE_PATH
     const val PREF_KEY_SYNC_ENABLED = KEY_SYNC_ENABLED
-    const val PREF_KEY_SYNC_EXCLUDED_SYSTEMS = KEY_SYNC_EXCLUDED_SYSTEMS
 }

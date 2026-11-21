@@ -38,7 +38,7 @@
     <string name="pref_key_network_storage_clear_cache" translatable="false">network_storage_clear_cache</string>
     <string name="pref_key_network_storage_configure" translatable="false">network_storage_configure</string>
     <string name="pref_key_network_storage_sync_enabled" translatable="false">network_storage_sync_enabled</string>
-    <string name="pref_key_network_storage_sync_excluded_systems" translatable="false">network_storage_sync_excluded_systems</string>
+    <string name="pref_key_network_storage_sync_enabled_hint" translatable="false">network_storage_sync_enabled_hint</string>
     <string name="pref_key_network_storage_sync_now" translatable="false">network_storage_sync_now</string>
     <string name="pref_key_network_storage_sync_cancel" translatable="false">network_storage_sync_cancel</string>
 
