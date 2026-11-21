@@ -43,6 +43,21 @@ class NetworkStorageProvider(private val context: Context) : StorageProvider {
 
     private fun currentConfig(): NetworkStorageConfig = NetworkStoragePreferences.load(context)
 
+    /** The URI stored with the game is authoritative. Preferences may be stale in the separate
+     *  game process; using their protocol can turn a webdav:// ROM into an SMB download. */
+    private fun configForUri(config: NetworkStorageConfig, uri: Uri): NetworkStorageConfig {
+        val protocol = NetworkProtocol.fromScheme(uri.scheme) ?: return config
+        val host = uri.host
+        if (host.isNullOrBlank()) return config.copy(protocol = protocol)
+        val preserveHttps = protocol == NetworkProtocol.WEBDAV &&
+            config.protocol == NetworkProtocol.WEBDAV && config.isHttps
+        return config.copy(
+            protocol = protocol,
+            host = (if (preserveHttps) "https://" else "") + host,
+            port = if (uri.port > 0) uri.port else 0
+        )
+    }
+
     override fun listBaseStorageFiles(): Flow<List<BaseStorageFile>> {
         val config = currentConfig()
         if (!config.isConfigured) return emptyFlow()
@@ -129,8 +144,9 @@ class NetworkStorageProvider(private val context: Context) : StorageProvider {
         dataFiles: List<DataFile>,
         allowVirtualFiles: Boolean
     ): RomFiles {
-        val config = currentConfig()
+        val config = configForUri(currentConfig(), Uri.parse(game.fileUri))
         val client = NetworkClientFactory.create(config)
+        Timber.d("Loading ${config.protocol} ROM from ${config.authority}")
         try {
             val gameFile = getGameRom(client, game)
             val dataEntries = dataFiles.map { getDataFile(client, game, it) }
@@ -256,7 +272,7 @@ class NetworkStorageProvider(private val context: Context) : StorageProvider {
         NetworkStoragePreferences.localSyncedFile(context, remotePath)?.let {
             return runCatching { it.inputStream() }.getOrNull()
         }
-        val config = currentConfig()
+        val config = configForUri(currentConfig(), uri)
         if (!config.isConfigured) return null
         val client = NetworkClientFactory.create(config)
         return try {
