@@ -47,6 +47,15 @@ class NetworkStorageProvider(private val context: Context) : StorageProvider {
         val config = currentConfig()
         if (!config.isConfigured) return emptyFlow()
 
+        // Once a sync has completed, every network game also exists locally. Indexing the
+        // network copy as well would show each game twice (and the two copies can resolve to
+        // different systems), so the local library becomes the single source.
+        if (NetworkStoragePreferences.isSyncEnabled(context) &&
+            NetworkStoragePreferences.hasCompletedSync(context)
+        ) {
+            return emptyFlow()
+        }
+
         return flow {
             val client = runCatching { NetworkClientFactory.create(config) }
                 .onFailure { Timber.e(it, "Failed to create network client") }

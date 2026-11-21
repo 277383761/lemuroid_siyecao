@@ -15,6 +15,7 @@ object NetworkStoragePreferences {
     private const val KEY_PASSWORD = "network_storage_password"
     private const val KEY_REMOTE_PATH = "network_storage_remote_path"
     private const val KEY_SYNC_ENABLED = "network_storage_sync_enabled"
+    private const val KEY_SYNC_COMPLETED_AT = "network_storage_sync_completed_at"
 
     private fun prefs(context: Context): SharedPreferences =
         SharedPreferencesHelper.getSharedPreferences(context)
@@ -48,6 +49,17 @@ object NetworkStoragePreferences {
     fun saveSyncEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_SYNC_ENABLED, enabled).apply()
     }
+
+    fun isSyncEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_SYNC_ENABLED, false)
+
+    /** Set once a sync has finished successfully, so the library can trust the local copies. */
+    fun markSyncCompleted(context: Context) {
+        prefs(context).edit().putLong(KEY_SYNC_COMPLETED_AT, System.currentTimeMillis()).apply()
+    }
+
+    fun hasCompletedSync(context: Context): Boolean =
+        prefs(context).getLong(KEY_SYNC_COMPLETED_AT, 0L) > 0L
 
     fun clearCache(context: Context) {
         val cacheRoot = context.cacheDir

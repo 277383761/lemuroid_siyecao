@@ -4,6 +4,7 @@ import android.content.Context
 import com.swordfish.lemuroid.app.shared.systems.DisabledSystemsPreferences
 import com.swordfish.lemuroid.lib.library.LemuroidLibrary
 import com.swordfish.lemuroid.lib.storage.network.NetworkRomSyncer
+import com.swordfish.lemuroid.lib.storage.network.NetworkStoragePreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +42,9 @@ class NetworkRomSyncManager(
                 mutableState.value = State.Running(
                     NetworkRomSyncer.Progress(NetworkRomSyncer.Stage.INDEXING)
                 )
+                // Local copies are now complete: index them only, so network entries do not
+                // show up as duplicates alongside their synced counterparts.
+                NetworkStoragePreferences.markSyncCompleted(appContext)
                 lemuroidLibrary.indexLibrary()
                 mutableState.value = State.Success(result)
             } catch (_: CancellationException) {

@@ -153,6 +153,7 @@ class LemuroidLibrary(
             val coverUrl = fetchCoverUrl(entry.file, provider, gameMetadata)
             entry.game.copy(
                 lastIndexedAt = startedAtMs,
+                title = chineseFileTitle(entry.game.fileName) ?: entry.game.title,
                 coverFrontUrl = coverUrl ?: entry.game.coverFrontUrl
             )
         }
@@ -344,12 +345,21 @@ class LemuroidLibrary(
         return Game(
             fileName = fileName,
             fileUri = groupedStorageFile.primaryFile.uri.toString(),
-            title = gameMetadata.name ?: groupedStorageFile.primaryFile.name,
+            title = chineseFileTitle(groupedStorageFile.primaryFile.name)
+                ?: gameMetadata.name ?: groupedStorageFile.primaryFile.name,
             systemId = gameSystem.id.dbname,
             developer = gameMetadata.developer,
             coverFrontUrl = gameMetadata.thumbnail,
             lastIndexedAt = lastIndexedAt
         )
+    }
+
+    /** A Chinese-named ROM keeps its file name as the title, exactly like the network source
+     *  shows it. Without this, a CRC hit on the local copy would replace the Chinese name with
+     *  the English No-Intro name from the database. */
+    private fun chineseFileTitle(fileName: String): String? {
+        val baseName = fileName.substringBeforeLast('.')
+        return if (baseName.any { it in '一'..'鿿' }) baseName else null
     }
 
     private fun removeDeletedDataFiles(startedAtMs: Long) {
