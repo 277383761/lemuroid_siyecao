@@ -49,6 +49,7 @@ import com.swordfish.lemuroid.lib.core.CoreVariable
 import com.swordfish.lemuroid.lib.core.CoreVariablesManager
 import com.swordfish.lemuroid.lib.game.GameLoader
 import com.swordfish.lemuroid.lib.game.GameLoaderError
+import com.swordfish.lemuroid.lib.preferences.SharedPreferencesHelper
 import com.swordfish.lemuroid.lib.game.GameLoaderException
 import com.swordfish.lemuroid.lib.game.LoadErrorLogger
 import com.swordfish.lemuroid.lib.library.ExposedSetting
@@ -155,6 +156,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
     private val controllerConfigsState = MutableStateFlow<Map<Int, ControllerConfig>>(mapOf())
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Read the options from disk again: this process is reused between game sessions and
+        // Harmony's cached copy may not contain what was saved in the settings screen.
+        SharedPreferencesHelper.reloadSharedPreferencesCache()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_game)
 

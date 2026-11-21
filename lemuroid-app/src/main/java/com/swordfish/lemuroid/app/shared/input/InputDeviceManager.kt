@@ -8,7 +8,7 @@ import android.view.KeyEvent
 import com.fredporciuncula.flow.preferences.FlowSharedPreferences
 import com.swordfish.lemuroid.app.shared.input.lemuroiddevice.getLemuroidInputDevice
 import com.swordfish.lemuroid.app.shared.settings.GameMenuShortcut
-import dagger.Lazy
+import com.swordfish.lemuroid.lib.preferences.SharedPreferencesHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -25,15 +25,29 @@ import kotlinx.serialization.json.Json
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class InputDeviceManager(
-    private val context: Context,
-    sharedPreferencesFactory: Lazy<SharedPreferences>
+    private val context: Context
 ) {
 
     private val inputManager = context.getSystemService(Context.INPUT_SERVICE) as InputManager
 
-    private val sharedPreferences by lazy { sharedPreferencesFactory.get() }
+    // Resolved on every access: the settings cache is dropped when moving between the settings
+    // screen and the game process, so a cached instance would keep returning outdated values.
+    private val sharedPreferences: SharedPreferences
+        get() = SharedPreferencesHelper.getSharedPreferences(context)
 
-    private val flowSharedPreferences by lazy { FlowSharedPreferences(sharedPreferences) }
+    private val flowSharedPreferences: FlowSharedPreferences
+        get() {
+            val preferences = sharedPreferences
+            val cached = cachedFlowPreferences
+            if (cached != null && cachedPreferences === preferences) return cached
+            return FlowSharedPreferences(preferences).also {
+                cachedFlowPreferences = it
+                cachedPreferences = preferences
+            }
+        }
+
+    private var cachedFlowPreferences: FlowSharedPreferences? = null
+    private var cachedPreferences: SharedPreferences? = null
 
     fun getInputBindingsObservable(): Flow<(InputDevice?) -> Map<InputKey, RetroKey>> {
         return getEnabledInputsObservable()

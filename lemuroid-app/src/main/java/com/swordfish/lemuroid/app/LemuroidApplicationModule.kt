@@ -291,8 +291,7 @@ abstract class LemuroidApplicationModule {
         @Provides
         @PerApp
         @JvmStatic
-        fun inputDeviceManager(context: Context, sharedPreferences: Lazy<SharedPreferences>) =
-            InputDeviceManager(context, sharedPreferences)
+        fun inputDeviceManager(context: Context) = InputDeviceManager(context)
 
         @Provides
         @PerApp
