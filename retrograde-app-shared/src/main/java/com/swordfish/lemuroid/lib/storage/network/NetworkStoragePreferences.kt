@@ -36,6 +36,7 @@ object NetworkStoragePreferences {
     }
 
     fun save(context: Context, config: NetworkStorageConfig) {
+        // Committed synchronously: the game process reads this right after the settings screen.
         prefs(context).edit()
             .putBoolean(KEY_ENABLED, config.enabled)
             .putString(KEY_PROTOCOL, config.protocol.name)
@@ -44,11 +45,11 @@ object NetworkStoragePreferences {
             .putString(KEY_USERNAME, config.username)
             .putString(KEY_PASSWORD, config.password)
             .putString(KEY_REMOTE_PATH, config.remotePath)
-            .apply()
+            .commit()
     }
 
     fun saveSyncEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_SYNC_ENABLED, enabled).apply()
+        prefs(context).edit().putBoolean(KEY_SYNC_ENABLED, enabled).commit()
     }
 
     fun isSyncEnabled(context: Context): Boolean =
@@ -56,7 +57,7 @@ object NetworkStoragePreferences {
 
     /** Set once a sync has finished successfully, so the library can trust the local copies. */
     fun markSyncCompleted(context: Context) {
-        prefs(context).edit().putLong(KEY_SYNC_COMPLETED_AT, System.currentTimeMillis()).apply()
+        prefs(context).edit().putLong(KEY_SYNC_COMPLETED_AT, System.currentTimeMillis()).commit()
     }
 
     fun hasCompletedSync(context: Context): Boolean =

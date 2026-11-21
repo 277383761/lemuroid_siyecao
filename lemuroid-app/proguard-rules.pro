@@ -80,6 +80,12 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
+## Harmony
+# The cached instances are cleared by class/field name through reflection so the long-lived
+# game process picks up the values written by the main process. R8 renames the class otherwise,
+# the reflection silently fails and the game keeps reading default options.
+-keep class com.frybits.harmony.** { *; }
+
 ## LibretroDroid
 -keep class com.swordfish.libretrodroid.** { *; }
 
