@@ -1,11 +1,11 @@
 package com.swordfish.lemuroid.app.shared.settings
 
+import android.app.AlertDialog
 import android.content.Context
 import android.content.DialogInterface
 import android.content.Intent
 import android.view.InputDevice
 import android.view.KeyEvent
-import androidx.appcompat.app.AlertDialog
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory

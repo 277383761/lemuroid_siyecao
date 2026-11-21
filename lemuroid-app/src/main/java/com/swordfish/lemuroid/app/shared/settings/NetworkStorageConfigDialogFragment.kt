@@ -1,5 +1,6 @@
 package com.swordfish.lemuroid.app.shared.settings
 
+import android.app.AlertDialog
 import android.app.Dialog
 import android.os.Bundle
 import android.view.KeyEvent
@@ -9,7 +10,6 @@ import android.widget.EditText
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.DialogFragment
 import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.lib.storage.network.NetworkProtocol
