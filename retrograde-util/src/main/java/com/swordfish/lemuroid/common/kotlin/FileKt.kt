@@ -62,12 +62,53 @@ fun InputStream.writeToFile(file: File) {
 
 fun ZipInputStream.extractEntryToFile(entryName: String, gameFile: File) {
     this.use { inputStream ->
-        while (true) {
-            val entry = inputStream.nextEntry
-            if (entry.name == entryName) break
+        var entry = inputStream.nextEntry
+        while (entry != null && entry.name != entryName) {
+            entry = inputStream.nextEntry
+        }
+        // Never loop forever (or write a truncated file) when the entry is missing: some zips
+        // store the ROM under a different name than the one recorded in the database.
+        if (entry == null) {
+            throw java.io.FileNotFoundException("Entry $entryName not found in archive")
         }
         inputStream.writeToFile(gameFile)
     }
+}
+
+/** Name of the largest entry inside the archive whose extension is supported by the system.
+ *  Used to pick the actual ROM when a zip contains several files. Returns null when the
+ *  archive has no matching entry. Uses ZipArchive so it never throws on non-ASCII entry
+ *  names (Android 5/6 ZipInputStream crashes with UTFDataFormatException on those). */
+fun File.findZipRomEntryName(
+    supportedExtensions: Set<String>,
+    preferredEntryName: String? = null
+): String? = ZipArchive.findRomEntry(this, supportedExtensions, preferredEntryName)?.name
+
+/** Extract a single entry (looked up by name) to [target] using the crash-safe ZipArchive
+ *  reader. Returns true only when [target] is written with content. */
+fun File.extractZipEntryToFile(entryName: String, target: File): Boolean {
+    val entry = ZipArchive.listEntries(this)
+        ?.firstOrNull { !it.isDirectory && it.name == entryName }
+        ?: return false
+    return ZipArchive.extractEntry(this, entry, target)
+}
+
+/** Crash-prone legacy path kept only for callers that hold an already-opened ZipInputStream.
+ *  Prefer File.findZipRomEntryName / File.extractZipEntryToFile on Android 5/6. */
+fun ZipInputStream.findLargestEntryName(supportedExtensions: Set<String>): String? {
+    var bestName: String? = null
+    var bestSize = -1L
+    while (true) {
+        val entry = nextEntry ?: break
+        if (entry.isDirectory) continue
+        val extension = entry.name.substringAfterLast('.', "").lowercase()
+        if (extension !in supportedExtensions) continue
+        if (entry.size > bestSize) {
+            bestSize = entry.size
+            bestName = entry.name
+        }
+    }
+    return bestName
 }
 
 fun File.isZipped() = extension == "zip"

@@ -3,7 +3,8 @@ package com.swordfish.lemuroid.lib.storage.network
 import android.content.Context
 import android.net.Uri
 import androidx.leanback.preference.LeanbackPreferenceFragment
-import com.swordfish.lemuroid.common.kotlin.extractEntryToFile
+import com.swordfish.lemuroid.common.kotlin.ZipArchive
+import com.swordfish.lemuroid.common.kotlin.extractZipEntryToFile
 import com.swordfish.lemuroid.common.kotlin.isZipped
 import com.swordfish.lemuroid.lib.R
 import com.swordfish.lemuroid.lib.library.GameSystem
@@ -16,7 +17,6 @@ import com.swordfish.lemuroid.lib.storage.StorageProvider
 import java.io.File
 import java.io.InputStream
 import java.util.Locale
-import java.util.zip.ZipInputStream
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
@@ -137,8 +137,13 @@ class NetworkStorageProvider(private val context: Context) : StorageProvider {
 
     private val downloadLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
 
+    // Do not use ConcurrentHashMap.computeIfAbsent here: its parameter is a
+    // java.util.function.Function, and the synthetic lambda generated for it cannot be loaded
+    // on Android 5 (API 22), where java.util.function does not exist yet.
     private fun lockFor(cacheFile: File): Any =
-        downloadLocks.computeIfAbsent(cacheFile.absolutePath) { Any() }
+        synchronized(downloadLocks) {
+            downloadLocks.getOrPut(cacheFile.absolutePath) { Any() }
+        }
 
     private fun getGameRom(client: NetworkClient, game: Game): File {
         val cacheFile = getCacheFileForGame(game)
@@ -165,15 +170,13 @@ class NetworkStorageProvider(private val context: Context) : StorageProvider {
 
             val extracted = File(zipCache.parentFile, File(entryName).name)
             if (extracted.length() == 0L) {
-                try {
-                    ZipInputStream(zipCache.inputStream()).use {
-                        it.extractEntryToFile(entryName, extracted)
-                    }
-                } catch (e: Throwable) {
+                val ok = runCatching { zipCache.extractZipEntryToFile(entryName, extracted) }
+                    .getOrDefault(false)
+                if (!ok || extracted.length() == 0L) {
                     // Corrupt archive or missing entry: remove so the next attempt re-downloads.
                     zipCache.delete()
                     extracted.delete()
-                    throw e
+                    throw java.io.IOException("Failed to extract ROM entry from ${zipCache.name}")
                 }
             }
             return extracted
@@ -181,7 +184,8 @@ class NetworkStorageProvider(private val context: Context) : StorageProvider {
     }
 
     /** Name of the single ROM entry inside the archive, based on the extensions the game system
-     *  supports. Returns null when the archive should be handed to the core untouched (arcade). */
+     *  supports. Returns null when the archive should be handed to the core untouched (arcade).
+     *  Uses ZipArchive so non-ASCII entry names never crash Android 5/6's ZipInputStream. */
     private fun findRomEntryName(zipFile: File, game: Game): String? {
         val system = runCatching { GameSystem.findById(game.systemId) }.getOrNull() ?: return null
         val supported = system.supportedExtensions
@@ -191,21 +195,7 @@ class NetworkStorageProvider(private val context: Context) : StorageProvider {
 
         if (supported.isEmpty()) return null
 
-        var bestName: String? = null
-        var bestSize = -1L
-        ZipInputStream(zipFile.inputStream()).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                if (entry.isDirectory) continue
-                val extension = entry.name.substringAfterLast('.', "").lowercase(Locale.getDefault())
-                if (extension !in supported) continue
-                if (entry.size > bestSize) {
-                    bestSize = entry.size
-                    bestName = entry.name
-                }
-            }
-        }
-        return bestName
+        return ZipArchive.findRomEntry(zipFile, supported)?.name
     }
 
     private fun getDataFile(client: NetworkClient, game: Game, dataFile: DataFile): File {

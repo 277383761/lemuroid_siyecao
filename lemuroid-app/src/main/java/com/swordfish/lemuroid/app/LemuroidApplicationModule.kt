@@ -38,6 +38,7 @@ import com.swordfish.lemuroid.app.shared.rumble.RumbleManager
 import com.swordfish.lemuroid.app.shared.settings.BiosPreferences
 import com.swordfish.lemuroid.app.shared.settings.ControllerConfigsManager
 import com.swordfish.lemuroid.app.shared.settings.CoresSelectionPreferences
+import com.swordfish.lemuroid.app.shared.settings.NetworkRomSyncManager
 import com.swordfish.lemuroid.app.shared.settings.StorageFrameworkPickerLauncher
 import com.swordfish.lemuroid.app.tv.channel.ChannelHandler
 import com.swordfish.lemuroid.ext.feature.core.CoreUpdaterImpl
@@ -186,6 +187,12 @@ abstract class LemuroidApplicationModule {
             gameMetadataProvider: Lazy<GameMetadataProvider>,
             biosManager: BiosManager
         ) = LemuroidLibrary(db, storageProviderRegistry, gameMetadataProvider, biosManager)
+
+        @Provides
+        @PerApp
+        @JvmStatic
+        fun networkRomSyncManager(context: Context, lemuroidLibrary: LemuroidLibrary) =
+            NetworkRomSyncManager(context, lemuroidLibrary)
 
         @Provides
         @PerApp

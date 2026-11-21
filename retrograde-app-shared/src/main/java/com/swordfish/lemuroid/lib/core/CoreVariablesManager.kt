@@ -39,7 +39,16 @@ class CoreVariablesManager(private val sharedPreferences: Lazy<SharedPreferences
         val requestedKeys = (exposedKeys + exposedAdvancedKeys).map { it.key }
             .map { computeSharedPreferenceKey(it, systemID.dbname) }
 
-        sharedPreferences.get().all.filter { it.key in requestedKeys }
+        // The Harmony store can be left corrupted (e.g. after the app was killed mid-write),
+        // which makes .all throw UTFDataFormatException. Fall back to the defaults instead of
+        // failing the whole game load, and clear the broken store so it can be rewritten.
+        val allPreferences = runCatching { sharedPreferences.get().all }
+            .getOrElse {
+                runCatching { sharedPreferences.get().edit().clear().commit() }
+                emptyMap()
+            }
+
+        allPreferences.filter { it.key in requestedKeys }
             .map { (key, value) ->
                 val result = when (value!!) {
                     is Boolean -> if (value as Boolean) "enabled" else "disabled"

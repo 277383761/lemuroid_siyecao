@@ -50,6 +50,7 @@ import com.swordfish.lemuroid.lib.core.CoreVariablesManager
 import com.swordfish.lemuroid.lib.game.GameLoader
 import com.swordfish.lemuroid.lib.game.GameLoaderError
 import com.swordfish.lemuroid.lib.game.GameLoaderException
+import com.swordfish.lemuroid.lib.game.LoadErrorLogger
 import com.swordfish.lemuroid.lib.library.ExposedSetting
 import com.swordfish.lemuroid.lib.library.GameSystem
 import com.swordfish.lemuroid.lib.library.SystemCoreConfig
@@ -949,49 +950,63 @@ abstract class BaseGameActivity : ImmersiveActivity() {
     }
 
     private suspend fun loadGame() {
-        val requestLoadSave = intent.getBooleanExtra(EXTRA_LOAD_SAVE, false)
+        try {
+            val requestLoadSave = intent.getBooleanExtra(EXTRA_LOAD_SAVE, false)
 
-        val autoSaveEnabled = settingsManager.autoSave()
-        val filter = settingsManager.screenFilter()
-        val hdMode = settingsManager.hdMode()
-        val forceLegacyHdMode = settingsManager.forceLegacyHdMode()
-        val lowLatencyAudio = settingsManager.lowLatencyAudio()
-        val enableRumble = settingsManager.enableRumble()
-        val directLoad = settingsManager.allowDirectGameLoad()
+            val autoSaveEnabled = settingsManager.autoSave()
+            val filter = settingsManager.screenFilter()
+            val hdMode = settingsManager.hdMode()
+            val forceLegacyHdMode = settingsManager.forceLegacyHdMode()
+            val lowLatencyAudio = settingsManager.lowLatencyAudio()
+            val enableRumble = settingsManager.enableRumble()
+            val directLoad = settingsManager.allowDirectGameLoad()
 
-        val loadingStatesFlow = gameLoader.load(
-            applicationContext,
-            game,
-            requestLoadSave && autoSaveEnabled,
-            systemCoreConfig,
-            directLoad
-        )
+            val loadingStatesFlow = gameLoader.load(
+                applicationContext,
+                game,
+                requestLoadSave && autoSaveEnabled,
+                systemCoreConfig,
+                directLoad
+            )
 
-        loadingStatesFlow
-            .flowOn(Dispatchers.IO)
-            .catch {
-                val error = (it as? GameLoaderException)?.error
-                if (error != null) {
-                    displayGameLoaderError(error, systemCoreConfig)
-                } else {
-                    // Fallback for unexpected throwables (e.g. NoClassDefFoundError that escaped).
-                    Timber.e(it, "Unexpected error during game load")
-                    displayGameLoaderError(GameLoaderError.Generic, systemCoreConfig)
+            loadingStatesFlow
+                .flowOn(Dispatchers.IO)
+                .catch { throwable ->
+                    val error = (throwable as? GameLoaderException)?.error
+                    if (error != null) {
+                        displayGameLoaderError(error, systemCoreConfig)
+                    } else {
+                        // Unexpected throwable from inside the flow that escaped GameLoader's catch.
+                        val detail = LoadErrorLogger.log(applicationContext, "BaseGameActivity", throwable)
+                        displayGameLoaderError(GameLoaderError.Unexpected(detail), systemCoreConfig)
+                    }
                 }
-            }
-            .collect { loadingState ->
-                displayLoadingState(loadingState)
-                if (loadingState is GameLoader.LoadingState.Ready) {
-                    retroGameView = initializeRetroGameView(
-                        loadingState.gameData,
-                        hdMode,
-                        forceLegacyHdMode,
-                        filter,
-                        lowLatencyAudio,
-                        systemCoreConfig.rumbleSupported && enableRumble
-                    )
+                .collect { loadingState ->
+                    displayLoadingState(loadingState)
+                    if (loadingState is GameLoader.LoadingState.Ready) {
+                        retroGameView = initializeRetroGameView(
+                            loadingState.gameData,
+                            hdMode,
+                            forceLegacyHdMode,
+                            filter,
+                            lowLatencyAudio,
+                            systemCoreConfig.rumbleSupported && enableRumble
+                        )
+                    }
                 }
+        } catch (e: Throwable) {
+            // Also catches errors thrown OUTSIDE the flow: the settings reads above (a corrupt
+            // preferences store throws here), and anything thrown while collecting, e.g.
+            // initializeRetroGameView. Without this they would crash the process silently on
+            // devices whose logcat buffer is empty.
+            val error = (e as? GameLoaderException)?.error
+            if (error != null) {
+                displayGameLoaderError(error, systemCoreConfig)
+            } else {
+                val detail = LoadErrorLogger.log(applicationContext, "BaseGameActivity", e)
+                displayGameLoaderError(GameLoaderError.Unexpected(detail), systemCoreConfig)
             }
+        }
     }
 
     private suspend fun initializeLoadingViewFlow() {
@@ -1023,6 +1038,8 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                 R.string.game_loader_error_missing_bios,
                 gameError.missingFiles
             )
+            is GameLoaderError.Unexpected -> getString(R.string.game_loader_error_generic) +
+                "\n\n[${gameError.detail}]"
         }
 
         performErrorFinish(messageId)

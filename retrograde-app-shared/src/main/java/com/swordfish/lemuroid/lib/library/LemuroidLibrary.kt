@@ -52,8 +52,8 @@ class LemuroidLibrary(
     private val biosManager: BiosManager
 ) {
 
-    /** System + file base name of every indexed game. Used to avoid indexing duplicates. */
-    private var knownGameKeys: MutableSet<Pair<String, String>> = mutableSetOf()
+    /** System + normalized file name of every indexed game, mapped to the best copy rank. */
+    private var knownGameKeys: MutableMap<Pair<String, String>, Int> = mutableMapOf()
 
     suspend fun indexLibrary() {
         val startedAtMs = System.currentTimeMillis()
@@ -62,7 +62,9 @@ class LemuroidLibrary(
         // its archive). Only one entry is kept, preferring the local copy and the raw file.
         runCatching { removeDuplicateGames() }
             .onFailure { Timber.e(it, "Failed to deduplicate games") }
-        knownGameKeys = runCatching { loadKnownGameKeys() }.getOrDefault(emptySet()).toMutableSet()
+        knownGameKeys = runCatching { loadKnownGameKeys() }
+            .getOrDefault(emptyMap())
+            .toMutableMap()
 
         try {
             indexProviders(startedAtMs)
@@ -70,7 +72,11 @@ class LemuroidLibrary(
             Timber.e("Library indexing stopped due to exception", e)
         } finally {
             cleanUp(startedAtMs)
-            knownGameKeys = mutableSetOf()
+            // Duplicates can still appear during a scan (local + network, raw + archive), so a
+            // second pass after indexing guarantees a single, locally preferred entry.
+            runCatching { removeDuplicateGames() }
+                .onFailure { Timber.e(it, "Failed to deduplicate games after index") }
+            knownGameKeys = mutableMapOf()
         }
 
         val executionTime = System.currentTimeMillis() - startedAtMs
@@ -214,9 +220,21 @@ class LemuroidLibrary(
 
     private fun handleNewGames(pairs: List<ScanEntry.GameFile>, startedAtMs: Long) {
         // Only the best copy of a game is inserted (local beats network, raw file beats archive).
+        // An equal or better copy is still inserted so a stale network entry can be replaced by
+        // its local counterpart; the final dedupe pass keeps the winner.
         val newPairs = pairs
             .sortedBy { it.game.dedupeRank() }
-            .filter { knownGameKeys.add(it.game.dedupeKey()) }
+            .filter { pair ->
+                val key = pair.game.dedupeKey()
+                val rank = pair.game.dedupeRank()
+                val knownRank = knownGameKeys[key]
+                if (knownRank == null || rank <= knownRank) {
+                    knownGameKeys[key] = minOf(rank, knownRank ?: rank)
+                    true
+                } else {
+                    false
+                }
+            }
 
         val games = newPairs
             .map { it.game }
@@ -346,11 +364,11 @@ class LemuroidLibrary(
         retrogradedb.gameDao().delete(games)
     }
 
-    /** Keys (system + file base name) of every game currently in the database. */
-    private suspend fun loadKnownGameKeys(): Set<Pair<String, String>> {
+    /** Keys (system + normalized file name) of every game currently in the database. */
+    private suspend fun loadKnownGameKeys(): Map<Pair<String, String>, Int> {
         return retrogradedb.gameDao().selectAll()
-            .map { it.dedupeKey() }
-            .toSet()
+            .groupBy { it.dedupeKey() }
+            .mapValues { (_, games) -> games.minOf { it.dedupeRank() } }
     }
 
     /**
@@ -368,9 +386,21 @@ class LemuroidLibrary(
 
             val isFavorite = group.any { it.isFavorite }
             val lastPlayedAt = group.mapNotNull { it.lastPlayedAt }.maxOrNull()
-            if (isFavorite != keeper.isFavorite || lastPlayedAt != keeper.lastPlayedAt) {
+            // Keep exactly one cover: the surviving copy's own cover, falling back to any other
+            // cover of the same game so merging never leaves an entry without artwork.
+            val coverFrontUrl = keeper.coverFrontUrl
+                ?: group.firstNotNullOfOrNull { it.coverFrontUrl }
+
+            if (isFavorite != keeper.isFavorite ||
+                lastPlayedAt != keeper.lastPlayedAt ||
+                coverFrontUrl != keeper.coverFrontUrl
+            ) {
                 retrogradedb.gameDao().update(
-                    keeper.copy(isFavorite = isFavorite, lastPlayedAt = lastPlayedAt)
+                    keeper.copy(
+                        isFavorite = isFavorite,
+                        lastPlayedAt = lastPlayedAt,
+                        coverFrontUrl = coverFrontUrl
+                    )
                 )
             }
 
@@ -390,8 +420,25 @@ class LemuroidLibrary(
     }
 
     private fun Game.dedupeKey(): Pair<String, String> {
-        val baseName = fileName.substringBeforeLast('.').trim().lowercase()
-        return systemId to baseName
+        return systemId to normalizeNameForDedupe(fileName.substringBeforeLast('.'))
+    }
+
+    /**
+     * Fuzzy normalization used to detect the same game coming from different sources: region,
+     * revision and quality tags are ignored, as are spaces and punctuation, so
+     * "Super Mario Bros. (USA).nes" and "Super Mario Bros.zip" are treated as one game.
+     * Disc markers are preserved so multi-disc games stay separate.
+     */
+    private fun normalizeNameForDedupe(rawName: String): String {
+        val withoutTags = Regex("[\\[(（【]([^\\])）】]*)[\\])）】]").replace(rawName) { match ->
+            val inner = match.groupValues[1].lowercase()
+            if (inner.contains("disc") || inner.contains("disk") || inner.contains("cd")) {
+                match.value
+            } else {
+                " "
+            }
+        }
+        return withoutTags.lowercase().replace(Regex("[^a-z0-9\\u4e00-\\u9fa5]+"), "")
     }
 
     /** Lower is better: local before network, raw ROM before archive. */

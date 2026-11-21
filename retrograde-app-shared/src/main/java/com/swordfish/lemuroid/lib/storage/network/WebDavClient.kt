@@ -45,22 +45,19 @@ class WebDavClient(private val config: NetworkStorageConfig) : NetworkClient {
     }
 
     override fun listFiles(remotePath: String): List<NetworkFileEntry> {
-        return runCatching {
-            val url = fullUrl(remotePath).let { if (it.endsWith("/")) it else "$it/" }
-            val request = propfindRequest(url, "1")
-                .method("PROPFIND", PROPFIND_BODY.toRequestBody(XML_MEDIA_TYPE))
-                .build()
+        val url = fullUrl(remotePath).let { if (it.endsWith("/")) it else "$it/" }
+        val request = propfindRequest(url, "1")
+            .method("PROPFIND", PROPFIND_BODY.toRequestBody(XML_MEDIA_TYPE))
+            .build()
 
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    Timber.e("WebDAV PROPFIND failed for $url: HTTP ${response.code}")
-                    return emptyList()
-                }
-                val body = response.body?.byteStream() ?: return emptyList()
-                parsePropfind(body, remotePath)
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IllegalStateException("WebDAV listing failed: HTTP ${response.code}")
             }
-        }.onFailure { Timber.e(it, "WebDAV listFiles failed for $remotePath") }
-            .getOrDefault(emptyList())
+            val body = response.body?.byteStream()
+                ?: throw IllegalStateException("WebDAV listing returned an empty response")
+            return parsePropfind(body, remotePath)
+        }
     }
 
     /** Convert an href (absolute URL or absolute path) into a decoded path. */

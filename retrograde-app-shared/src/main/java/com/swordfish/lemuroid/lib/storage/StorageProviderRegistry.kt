@@ -23,6 +23,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
 import com.swordfish.lemuroid.lib.library.db.entity.Game
+import com.swordfish.lemuroid.lib.storage.local.LocalStorageProvider
+import com.swordfish.lemuroid.lib.storage.local.StorageAccessFrameworkProvider
 
 class StorageProviderRegistry(context: Context, val providers: Set<StorageProvider>) {
 
@@ -39,7 +41,17 @@ class StorageProviderRegistry(context: Context, val providers: Set<StorageProvid
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
     val enabledProviders: Iterable<StorageProvider>
-        get() = providers.filter { prefs.getBoolean(it.id, it.enabledByDefault) }
+        get() = providers
+            .filter { prefs.getBoolean(it.id, it.enabledByDefault) }
+            // Local storage is indexed first so that, when the same game exists both locally and
+            // on a network share, the local entry is the one that gets created and kept.
+            .sortedBy { priority(it) }
+
+    private fun priority(provider: StorageProvider): Int = when {
+        provider is LocalStorageProvider -> 0
+        provider is StorageAccessFrameworkProvider -> 1
+        else -> 2
+    }
 
     fun getProvider(game: Game): StorageProvider {
         val uri = Uri.parse(game.fileUri)

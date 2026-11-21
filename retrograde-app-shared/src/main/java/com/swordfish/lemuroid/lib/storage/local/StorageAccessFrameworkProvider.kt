@@ -5,10 +5,12 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import androidx.leanback.preference.LeanbackPreferenceFragment
-import com.swordfish.lemuroid.common.kotlin.extractEntryToFile
+import com.swordfish.lemuroid.common.kotlin.extractZipEntryToFile
+import com.swordfish.lemuroid.common.kotlin.findZipRomEntryName
 import com.swordfish.lemuroid.common.kotlin.isZipped
 import com.swordfish.lemuroid.common.kotlin.writeToFile
 import com.swordfish.lemuroid.lib.R
+import com.swordfish.lemuroid.lib.library.GameSystem
 import com.swordfish.lemuroid.lib.library.db.entity.DataFile
 import com.swordfish.lemuroid.lib.library.db.entity.Game
 import com.swordfish.lemuroid.lib.preferences.SharedPreferencesHelper
@@ -18,7 +20,6 @@ import com.swordfish.lemuroid.lib.storage.StorageFile
 import com.swordfish.lemuroid.lib.storage.StorageProvider
 import java.io.File
 import java.io.InputStream
-import java.util.zip.ZipInputStream
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
@@ -129,13 +130,25 @@ class StorageAccessFrameworkProvider(private val context: Context) : StorageProv
         val originalDocumentUri = Uri.parse(game.fileUri)
         val originalDocument = DocumentFile.fromSingleUri(context, originalDocumentUri)!!
 
-        val isZipped = originalDocument.isZipped() && originalDocument.name != game.fileName
+        val extractableExtensions = getExtractableRomExtensions(game)
+        val needsExtraction = originalDocument.isZipped() && extractableExtensions.isNotEmpty()
 
         return when {
-            isZipped && dataFiles.isEmpty() -> getGameRomFilesZipped(game, originalDocument)
+            needsExtraction && dataFiles.isEmpty() ->
+                getGameRomFilesZipped(game, originalDocument, extractableExtensions)
             allowVirtualFiles -> getGameRomFilesVirtual(game, dataFiles)
             else -> getGameRomFilesStandard(game, dataFiles, originalDocument)
         }
+    }
+
+    /** Extensions that must be extracted out of the archive before being handed to the core.
+     *  Empty for systems whose core reads the zip itself (arcade). */
+    private fun getExtractableRomExtensions(game: Game): Set<String> {
+        val system = runCatching { GameSystem.findById(game.systemId) }.getOrNull() ?: return emptySet()
+        return system.supportedExtensions
+            .map { it.lowercase() }
+            .filterNot { it == "zip" || it == "7z" }
+            .toSet()
     }
 
     private fun getGameRomFilesStandard(
@@ -148,16 +161,35 @@ class StorageAccessFrameworkProvider(private val context: Context) : StorageProv
         return RomFiles.Standard(listOf(gameEntry) + dataEntries)
     }
 
-    private fun getGameRomFilesZipped(game: Game, originalDocument: DocumentFile): RomFiles {
+    private fun getGameRomFilesZipped(
+        game: Game,
+        originalDocument: DocumentFile,
+        supportedExtensions: Set<String>
+    ): RomFiles {
         val cacheFile = GameCacheUtils.getCacheFileForGame(SAF_CACHE_SUBFOLDER, context, game)
-        if (cacheFile.exists()) {
+        if (cacheFile.exists() && cacheFile.length() > 0) {
             return RomFiles.Standard(listOf(cacheFile))
         }
 
-        val stream = ZipInputStream(
-            context.contentResolver.openInputStream(originalDocument.uri)
-        )
-        stream.extractEntryToFile(game.fileName, cacheFile)
+        // Content URIs are not seekable, so buffer the whole archive into a temp file first.
+        // This also lets us use the crash-safe ZipArchive reader (Android 5/6 ZipInputStream
+        // throws UTFDataFormatException on non-ASCII entry names).
+        val tmpArchive = File.createTempFile("saf_zip_", ".zip", context.cacheDir)
+        try {
+            context.contentResolver.openInputStream(originalDocument.uri)?.use { input ->
+                tmpArchive.outputStream().use { output -> input.copyTo(output) }
+            } ?: throw java.io.FileNotFoundException("Cannot open ${originalDocument.name}")
+
+            val entryName = tmpArchive.findZipRomEntryName(supportedExtensions)
+                ?: throw java.io.FileNotFoundException("No supported ROM entry in ${originalDocument.name}")
+
+            if (!tmpArchive.extractZipEntryToFile(entryName, cacheFile) || cacheFile.length() == 0L) {
+                cacheFile.delete()
+                throw java.io.IOException("Failed to extract entry from ${originalDocument.name}")
+            }
+        } finally {
+            tmpArchive.delete()
+        }
         return RomFiles.Standard(listOf(cacheFile))
     }
 

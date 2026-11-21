@@ -43,21 +43,23 @@ class FtpClient(private val config: NetworkStorageConfig) : NetworkClient {
     }
 
     override fun listFiles(remotePath: String): List<NetworkFileEntry> {
-        return runCatching {
-            ensureConnected()
-            val dir = normalizePath(remotePath)
-            val files: Array<FTPFile> = client.listFiles(dir) ?: return emptyList()
-            files
-                .filterNot { it.name.startsWith(".") }
-                .map { file ->
-                    NetworkFileEntry(
-                        name = file.name,
-                        size = file.size,
-                        isDirectory = file.isDirectory,
-                        path = (dir.trimEnd('/') + "/" + file.name).trimStart('/')
-                    )
-                }
-        }.onFailure { Timber.e(it, "FTP listFiles failed for $remotePath") }.getOrDefault(emptyList())
+        ensureConnected()
+        val dir = normalizePath(remotePath)
+        val files: Array<FTPFile> = client.listFiles(dir)
+            ?: throw IllegalStateException("FTP listing failed: ${client.replyString}")
+        if (!FTPReply.isPositiveCompletion(client.replyCode)) {
+            throw IllegalStateException("FTP listing failed: ${client.replyString}")
+        }
+        return files
+            .filterNot { it.name.startsWith(".") }
+            .map { file ->
+                NetworkFileEntry(
+                    name = file.name,
+                    size = file.size,
+                    isDirectory = file.isDirectory,
+                    path = (dir.trimEnd('/') + "/" + file.name).trimStart('/')
+                )
+            }
     }
 
     override fun getInputStream(remotePath: String): InputStream? {

@@ -8,8 +8,8 @@ plugins {
 
 android {
     defaultConfig {
-        versionCode = 223
-        versionName = "1.17.0" // Always remember to update Cores Tag!
+        versionCode = 236
+        versionName = "1.17.13" // Always remember to update Cores Tag!
         applicationId = "com.swordfish.lemuroid"
     }
 
@@ -106,6 +106,15 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+
+    compileOptions {
+        // Backports java.util.function (and other Java 8 APIs) to Android 5/6. Without it,
+        // lambdas that implement java.util.function.* are compiled into synthetic classes that
+        // fail to load with NoClassDefFoundError on API 21/22 (e.g. Commons Net FTP code).
+        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
 }
 
 dependencies {
@@ -167,6 +176,8 @@ dependencies {
     implementation(deps.libs.kotlin.serializationJson)
 
     implementation(deps.libs.libretrodroid)
+
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:1.1.5")
 
     // Uncomment this when using a local aar file.
     //implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))

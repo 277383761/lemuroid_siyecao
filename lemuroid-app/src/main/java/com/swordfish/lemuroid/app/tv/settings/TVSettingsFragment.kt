@@ -17,6 +17,8 @@ import com.swordfish.lemuroid.app.shared.settings.AdvancedSettingsPreferences
 import com.swordfish.lemuroid.app.shared.settings.BiosPreferences
 import com.swordfish.lemuroid.app.shared.settings.CoresSelectionPreferences
 import com.swordfish.lemuroid.app.shared.settings.GamePadPreferencesHelper
+import com.swordfish.lemuroid.app.shared.settings.NetworkRomSyncManager
+import com.swordfish.lemuroid.app.shared.settings.NetworkStorageSettingsUi
 import com.swordfish.lemuroid.app.shared.settings.SaveSyncPreferences
 import com.swordfish.lemuroid.app.shared.settings.SettingsInteractor
 import com.swordfish.lemuroid.app.shared.systems.DisabledSystemsPreferences
@@ -58,6 +60,9 @@ class TVSettingsFragment : LeanbackPreferenceFragmentCompat() {
     @Inject
     lateinit var saveSyncManager: SaveSyncManager
 
+    @Inject
+    lateinit var networkSyncManager: NetworkRomSyncManager
+
     lateinit var saveSyncPreferences: SaveSyncPreferences
 
     override fun onAttach(context: Context) {
@@ -70,6 +75,8 @@ class TVSettingsFragment : LeanbackPreferenceFragmentCompat() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        NetworkStorageSettingsUi.initialize(this, networkSyncManager)
 
         launchOnState(Lifecycle.State.CREATED) {
             val gamePadStatus = combine(
@@ -118,6 +125,7 @@ class TVSettingsFragment : LeanbackPreferenceFragmentCompat() {
     override fun onResume() {
         super.onResume()
 
+        NetworkStorageSettingsUi.refreshConnectionSummary(this)
         refreshSaveSyncScreen()
 
         getSaveSyncScreen()?.let { screen ->

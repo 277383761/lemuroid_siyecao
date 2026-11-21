@@ -36,6 +36,11 @@
     <string name="pref_key_network_storage_remote_path" translatable="false">network_storage_remote_path</string>
     <string name="pref_key_network_storage_test_connection" translatable="false">network_storage_test_connection</string>
     <string name="pref_key_network_storage_clear_cache" translatable="false">network_storage_clear_cache</string>
+    <string name="pref_key_network_storage_configure" translatable="false">network_storage_configure</string>
+    <string name="pref_key_network_storage_sync_enabled" translatable="false">network_storage_sync_enabled</string>
+    <string name="pref_key_network_storage_sync_systems" translatable="false">network_storage_sync_systems</string>
+    <string name="pref_key_network_storage_sync_now" translatable="false">network_storage_sync_now</string>
+    <string name="pref_key_network_storage_sync_cancel" translatable="false">network_storage_sync_cancel</string>
 
     <string-array translatable="false" name="network_storage_protocol_values">
         <item>SMB</item>

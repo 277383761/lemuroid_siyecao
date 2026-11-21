@@ -106,8 +106,12 @@ class GameLoader(
                 }
             }.getOrElse { throw GameLoaderException(GameLoaderError.Saves) }
 
-            val coreVariables = legacyCoreVariablesManager.getOptionsForCore(system.id, systemCoreConfig)
-                .toTypedArray()
+            val coreVariables = runCatching {
+                legacyCoreVariablesManager.getOptionsForCore(system.id, systemCoreConfig)
+            }.getOrElse {
+                android.util.Log.e("LemuroidGameLoader", "Error reading core variables", it)
+                emptyList()
+            }.toTypedArray()
 
             val systemDirectory = directoriesManager.getSystemDirectory()
             val savesDirectory = directoriesManager.getSavesDirectory()
@@ -130,10 +134,11 @@ class GameLoader(
             Timber.e(e, "Error while preparing game")
             throw e
         } catch (e: Throwable) {
-            // Catch Error too (e.g. NoClassDefFoundError on Android 5) so we can log the
-            // exact missing class instead of letting it propagate as a confusing cast error.
-            Timber.e(e, "Error while preparing game (type=%s, msg=%s)", e.javaClass.name, e.message)
-            throw GameLoaderException(GameLoaderError.Generic)
+            // Persist the full stack trace to internal storage (external dir may be missing on
+            // some TVs) and surface the first frames on the error screen so the cause can be
+            // identified even when logcat is empty.
+            val detail = LoadErrorLogger.log(appContext, "LemuroidGameLoader", e)
+            throw GameLoaderException(GameLoaderError.Unexpected(detail))
         }
     }
 

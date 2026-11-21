@@ -23,9 +23,11 @@ import android.content.Context
 import android.net.Uri
 import androidx.core.net.toUri
 import androidx.leanback.preference.LeanbackPreferenceFragment
-import com.swordfish.lemuroid.common.kotlin.extractEntryToFile
+import com.swordfish.lemuroid.common.kotlin.extractZipEntryToFile
+import com.swordfish.lemuroid.common.kotlin.findZipRomEntryName
 import com.swordfish.lemuroid.common.kotlin.isZipped
 import com.swordfish.lemuroid.lib.R
+import com.swordfish.lemuroid.lib.library.GameSystem
 import com.swordfish.lemuroid.lib.library.db.entity.DataFile
 import com.swordfish.lemuroid.lib.library.db.entity.Game
 import com.swordfish.lemuroid.lib.preferences.SharedPreferencesHelper
@@ -36,7 +38,6 @@ import com.swordfish.lemuroid.lib.storage.StorageFile
 import com.swordfish.lemuroid.lib.storage.StorageProvider
 import java.io.File
 import java.io.InputStream
-import java.util.zip.ZipInputStream
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -97,21 +98,42 @@ class LocalStorageProvider(
     private fun getGameRom(game: Game): File {
         val gamePath = Uri.parse(game.fileUri).path
         val originalFile = File(gamePath)
-        if (!originalFile.isZipped() || originalFile.name == game.fileName) {
+        if (!originalFile.isZipped()) {
+            return originalFile
+        }
+
+        val supportedExtensions = getExtractableRomExtensions(game)
+        // Arcade systems (FBNeo/MAME) only support the archive itself and read it natively.
+        if (supportedExtensions.isEmpty()) {
             return originalFile
         }
 
         val cacheFile = GameCacheUtils.getCacheFileForGame(LOCAL_STORAGE_CACHE_SUBFOLDER, context, game)
-        if (cacheFile.exists()) {
+        if (cacheFile.exists() && cacheFile.length() > 0) {
             return cacheFile
         }
 
-        if (originalFile.isZipped()) {
-            val stream = ZipInputStream(originalFile.inputStream())
-            stream.extractEntryToFile(game.fileName, cacheFile)
+        val entryName = originalFile.findZipRomEntryName(supportedExtensions, game.fileName)
+            ?: throw java.io.FileNotFoundException("No supported ROM entry in ${originalFile.name}")
+
+        // Use the crash-safe extractor: ZipInputStream.getNextEntry() throws
+        // UTFDataFormatException on Android 5/6 for non-ASCII entry names.
+        if (!originalFile.extractZipEntryToFile(entryName, cacheFile) || cacheFile.length() == 0L) {
+            cacheFile.delete()
+            throw java.io.IOException("Failed to extract entry '$entryName' from ${originalFile.name}")
         }
 
         return cacheFile
+    }
+
+    /** Extensions that must be extracted out of the archive before being handed to the core.
+     *  Empty for systems whose core reads the zip itself (arcade). */
+    private fun getExtractableRomExtensions(game: Game): Set<String> {
+        val system = runCatching { GameSystem.findById(game.systemId) }.getOrNull() ?: return emptySet()
+        return system.supportedExtensions
+            .map { it.lowercase() }
+            .filterNot { it == "zip" || it == "7z" }
+            .toSet()
     }
 
     override fun getGameRomFiles(

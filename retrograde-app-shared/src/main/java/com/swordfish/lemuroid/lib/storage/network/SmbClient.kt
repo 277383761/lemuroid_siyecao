@@ -35,7 +35,9 @@ class SmbClient(private val config: NetworkStorageConfig) : NetworkClient {
         val url = buildUrl(remotePath)
         Timber.d("SMB listing: $url")
         val dir = SmbFile(url, cifsContext)
-        if (!dir.exists() || !dir.isDirectory) return emptyList()
+        if (!dir.exists() || !dir.isDirectory) {
+            throw IllegalStateException("SMB directory not found: $url")
+        }
 
         return dir.listFiles()
             .filterNot { it.name.startsWith(".") }
