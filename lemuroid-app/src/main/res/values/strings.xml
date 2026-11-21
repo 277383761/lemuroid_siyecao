@@ -42,6 +42,7 @@
     <string name="settings_gamepad_title_game_menu">Menu</string>
     <string name="settings_gamepad_title_port">Player port</string>
     <string name="settings_gamepad_port_auto">Auto</string>
+    <string name="settings_gamepad_port_auto_current">Auto (%1$s)</string>
     <string name="settings_gamepad_port_n">%1$dP</string>
 
     <string name="settings_title_open_cores_selection">Change Cores</string>

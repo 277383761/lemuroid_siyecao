@@ -3,32 +3,37 @@ package com.swordfish.lemuroid.common.preferences
 import android.content.SharedPreferences
 import androidx.preference.PreferenceDataStore
 
+/**
+ * Persists preference changes synchronously: settings screens write rarely, and an async
+ * [SharedPreferences.Editor.apply] loses the change when the process is killed right after
+ * (for example when a dialog crashes), which made device options appear reset on the next run.
+ */
 class SharedPreferencesDataStore(
     private val sharedPreferences: SharedPreferences
 ) : PreferenceDataStore() {
 
     override fun putString(key: String?, value: String?) {
-        sharedPreferences.edit().putString(key, value).apply()
+        sharedPreferences.edit().putString(key, value).commit()
     }
 
     override fun putStringSet(key: String?, values: MutableSet<String>?) {
-        sharedPreferences.edit().putStringSet(key, values).apply()
+        sharedPreferences.edit().putStringSet(key, values).commit()
     }
 
     override fun putInt(key: String?, value: Int) {
-        sharedPreferences.edit().putInt(key, value).apply()
+        sharedPreferences.edit().putInt(key, value).commit()
     }
 
     override fun putLong(key: String?, value: Long) {
-        sharedPreferences.edit().putLong(key, value).apply()
+        sharedPreferences.edit().putLong(key, value).commit()
     }
 
     override fun putFloat(key: String?, value: Float) {
-        sharedPreferences.edit().putFloat(key, value).apply()
+        sharedPreferences.edit().putFloat(key, value).commit()
     }
 
     override fun putBoolean(key: String?, value: Boolean) {
-        sharedPreferences.edit().putBoolean(key, value).apply()
+        sharedPreferences.edit().putBoolean(key, value).commit()
     }
 
     override fun getString(key: String?, defValue: String?): String? {

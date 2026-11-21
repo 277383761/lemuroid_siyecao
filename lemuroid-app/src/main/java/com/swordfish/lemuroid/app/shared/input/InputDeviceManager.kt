@@ -59,10 +59,27 @@ class InputDeviceManager(
     }
 
     fun getGamePadsPortMapperObservable(): Flow<(InputDevice?) -> Int?> {
-        return getEnabledInputsObservable().map { gamePads ->
-            val portMappings = buildPortMappings(gamePads)
-            return@map { inputDevice -> portMappings[inputDevice?.descriptor] }
+        // Resolve ports against the live enabled state instead of the cached device list, so
+        // disabling a pad makes the remaining one take 1P immediately, without a restart.
+        return getGamePadsObservable().map { allGamePads ->
+            val mappings = buildPortMappings(allGamePads.filter { isDeviceEnabled(it) })
+            val mapper: (InputDevice?) -> Int? = { inputDevice ->
+                mappings[inputDevice?.descriptor]
+            }
+            mapper
         }
+    }
+
+    /** True when the pad is switched on in the settings screen. */
+    private fun isDeviceEnabled(inputDevice: InputDevice): Boolean {
+        val defaultValue = inputDevice.getLemuroidInputDevice().isEnabledByDefault(context)
+        return sharedPreferences.getBoolean(computeEnabledGamePadPreference(inputDevice), defaultValue)
+    }
+
+    /** Port the device uses right now, taking the enabled switches into account. */
+    fun getResolvedPort(inputDevice: InputDevice): Int? {
+        val enabledPads = getAllGamePads().filter { isDeviceEnabled(it) }
+        return buildPortMappings(enabledPads)[inputDevice.descriptor]
     }
 
     /** Reads the user-assigned port for a device, or [PORT_AUTO] if not set.

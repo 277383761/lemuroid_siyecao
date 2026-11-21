@@ -168,7 +168,7 @@ class GamePadPreferencesHelper(
         preference.key = InputDeviceManager.computePortPreference(inputDevice)
         preference.title = context.getString(R.string.settings_gamepad_title_port)
         preference.isIconSpaceReserved = false
-        updatePortSummary(preference, inputDevice, entries, entryValues)
+        updatePortSummary(context, preference, inputDevice, entries, entryValues)
 
         preference.setOnPreferenceClickListener {
             val currentPort = inputDeviceManager.getDevicePort(inputDevice)
@@ -179,7 +179,7 @@ class GamePadPreferencesHelper(
                 .setSingleChoiceItems(entries.toTypedArray(), checkedIndex) { dialog, which ->
                     runCatching {
                         inputDeviceManager.setDevicePort(inputDevice, entryValues[which])
-                        updatePortSummary(preference, inputDevice, entries, entryValues)
+                        updatePortSummary(context, preference, inputDevice, entries, entryValues)
                     }
                     dialog.dismiss()
                 }
@@ -191,14 +191,28 @@ class GamePadPreferencesHelper(
     }
 
     private fun updatePortSummary(
+        context: Context,
         preference: Preference,
         inputDevice: InputDevice,
         entries: List<String>,
         entryValues: List<Int>
     ) {
         val port = inputDeviceManager.getDevicePort(inputDevice)
-        val index = entryValues.indexOf(port).coerceAtLeast(0)
-        preference.summary = entries[index]
+        if (port != InputDeviceManager.PORT_AUTO) {
+            val index = entryValues.indexOf(port).coerceAtLeast(0)
+            preference.summary = entries[index]
+            return
+        }
+        // Show the port the pad actually gets, so a disabled pad is not hiding the 1P slot.
+        val resolved = inputDeviceManager.getResolvedPort(inputDevice)
+        preference.summary = if (resolved == null) {
+            entries[0]
+        } else {
+            context.getString(
+                R.string.settings_gamepad_port_auto_current,
+                context.getString(R.string.settings_gamepad_port_n, resolved + 1)
+            )
+        }
     }
 
     private fun buildKeyBindingPreference(
