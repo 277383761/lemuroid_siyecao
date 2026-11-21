@@ -102,6 +102,19 @@ class InputDeviceManager(
             .remove(computePortPreference(inputDevice))
             .putInt(computePortPreference(inputDevice), port)
             .commit()
+
+        if (port < 0) return
+        // A port belongs to a single pad. Without this the chosen pad keeps losing the slot to
+        // the other one (for example the TV remote) and the game receives input on 2P instead.
+        getAllGamePads()
+            .filter { it.descriptor != inputDevice.descriptor }
+            .filter { getDevicePort(it) == port }
+            .forEach { other ->
+                sharedPreferences.edit()
+                    .remove(computePortPreference(other))
+                    .putInt(computePortPreference(other), PORT_AUTO)
+                    .commit()
+            }
     }
 
     /** Resolves the final port for every enabled pad: explicit assignments first, then the
