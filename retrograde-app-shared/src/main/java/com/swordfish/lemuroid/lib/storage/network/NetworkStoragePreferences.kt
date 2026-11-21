@@ -15,7 +15,7 @@ object NetworkStoragePreferences {
     private const val KEY_PASSWORD = "network_storage_password"
     private const val KEY_REMOTE_PATH = "network_storage_remote_path"
     private const val KEY_SYNC_ENABLED = "network_storage_sync_enabled"
-    private const val KEY_SYNC_SYSTEMS = "network_storage_sync_systems"
+    private const val KEY_SYNC_EXCLUDED_SYSTEMS = "network_storage_sync_excluded_systems"
 
     private fun prefs(context: Context): SharedPreferences =
         SharedPreferencesHelper.getSharedPreferences(context)
@@ -46,22 +46,17 @@ object NetworkStoragePreferences {
             .apply()
     }
 
-    /** An absent value means all systems; an explicitly empty set means none. */
-    fun loadSyncSystemIds(context: Context): Set<String> {
-        val saved = prefs(context).getStringSet(KEY_SYNC_SYSTEMS, null) ?: return allSystemIds()
-        return saved.toSet()
-    }
-
-    fun saveSyncSystemIds(context: Context, systemIds: Set<String>) {
-        prefs(context).edit().putStringSet(KEY_SYNC_SYSTEMS, systemIds).apply()
-    }
-
     fun saveSyncEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_SYNC_ENABLED, enabled).apply()
     }
 
-    fun allSystemIds(): Set<String> =
-        com.swordfish.lemuroid.lib.library.GameSystem.all().map { it.id.dbname }.toSet()
+    /** Systems the user explicitly asked not to sync. An empty set means a complete sync. */
+    fun loadExcludedSystemIds(context: Context): Set<String> =
+        prefs(context).getStringSet(KEY_SYNC_EXCLUDED_SYSTEMS, null)?.toSet() ?: emptySet()
+
+    fun saveExcludedSystemIds(context: Context, systemIds: Set<String>) {
+        prefs(context).edit().putStringSet(KEY_SYNC_EXCLUDED_SYSTEMS, systemIds).apply()
+    }
 
     fun clearCache(context: Context) {
         val cacheRoot = context.cacheDir
@@ -82,5 +77,5 @@ object NetworkStoragePreferences {
     const val PREF_KEY_PASSWORD = KEY_PASSWORD
     const val PREF_KEY_REMOTE_PATH = KEY_REMOTE_PATH
     const val PREF_KEY_SYNC_ENABLED = KEY_SYNC_ENABLED
-    const val PREF_KEY_SYNC_SYSTEMS = KEY_SYNC_SYSTEMS
+    const val PREF_KEY_SYNC_EXCLUDED_SYSTEMS = KEY_SYNC_EXCLUDED_SYSTEMS
 }

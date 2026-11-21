@@ -13,7 +13,12 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
 import kotlin.coroutines.coroutineContext
 
-/** Mirrors the selected parts of a network share into one dedicated local directory. */
+/**
+ * Mirrors the whole network share into the local ROM directory.
+ *
+ * Files downloaded by a previous sync are kept in step with the source and removed when they
+ * disappear from it. Files the user placed locally are never overwritten or deleted.
+ */
 class NetworkRomSyncer(private val context: Context) {
 
     data class Progress(
@@ -28,7 +33,6 @@ class NetworkRomSyncer(private val context: Context) {
     enum class Stage {
         SCANNING,
         DOWNLOADING,
-        CLEANING,
         INDEXING
     }
 
@@ -41,43 +45,57 @@ class NetworkRomSyncer(private val context: Context) {
     private data class RemoteFile(val path: String, val relativePath: String, val size: Long)
 
     suspend fun sync(
-        selectedSystemIds: Set<String>,
+        excludedSystemIds: Set<String>,
         onProgress: (Progress) -> Unit
     ): Result {
         val config = NetworkStoragePreferences.load(context)
         check(config.isConfigured) { "请先启用网络存储并填写服务器地址" }
-        check(selectedSystemIds.isNotEmpty()) { "请至少选择一个要同步的主机系统" }
 
         val client = NetworkClientFactory.create(config)
         try {
             onProgress(Progress(Stage.SCANNING))
             val connected = runInterruptible { client.testConnection() }
-            check(connected) { "无法连接网络目录，已保留原有本地镜像" }
+            check(connected) { "无法连接网络目录，已保留原有本地 ROM" }
             val remoteFiles = listRemoteFiles(client, config.remotePath)
-            val selectedFiles = filterSelectedSystems(remoteFiles, selectedSystemIds)
-            val mirrorRoot = getMirrorDirectory()
-            if (!mirrorRoot.isDirectory && !mirrorRoot.mkdirs()) {
-                throw IOException("无法创建本地镜像目录，请检查存储权限：${mirrorRoot.absolutePath}")
+            val systems = resolveSystems(remoteFiles)
+            val selectedFiles = if (excludedSystemIds.isEmpty()) {
+                remoteFiles
+            } else {
+                remoteFiles.filter { file ->
+                    val system = systems[file.relativePath]
+                    system == null || system.dbname !in excludedSystemIds
+                }
+            }
+            val romsRoot = getRomsDirectory()
+            if (!romsRoot.isDirectory && !romsRoot.mkdirs()) {
+                throw IOException("无法创建本地 ROM 目录，请检查存储权限：${romsRoot.absolutePath}")
             }
 
             val expectedFiles = LinkedHashMap<String, RemoteFile>()
             selectedFiles.forEach { remoteFile ->
-                // Validate every local path before any download or deletion takes place.
-                safeLocalFile(mirrorRoot, remoteFile.relativePath)
+                // Validate every local path before any download takes place.
+                safeLocalFile(romsRoot, remoteFile.relativePath)
                 if (!expectedFiles.containsKey(remoteFile.relativePath)) {
                     expectedFiles[remoteFile.relativePath] = remoteFile
                 }
             }
 
+            val manifestKey = sourceKey(config)
+            val managedFiles = loadManifest(manifestKey)
             val filesToDownload = expectedFiles.values.filter { remoteFile ->
-                val localFile = safeLocalFile(mirrorRoot, remoteFile.relativePath)
-                !localFile.isFile || localFile.length() != remoteFile.size
+                val localFile = safeLocalFile(romsRoot, remoteFile.relativePath)
+                if (!localFile.isFile) {
+                    true
+                } else {
+                    // Only files downloaded by an earlier sync may be refreshed.
+                    remoteFile.relativePath in managedFiles && localFile.length() != remoteFile.size
+                }
             }
             val requiredBytes = filesToDownload.fold(0L) { total, file ->
                 if (Long.MAX_VALUE - total < file.size.coerceAtLeast(0L)) Long.MAX_VALUE
                 else total + file.size.coerceAtLeast(0L)
             }
-            val availableBytes = StatFs(mirrorRoot.absolutePath).availableBytes
+            val availableBytes = StatFs(romsRoot.absolutePath).availableBytes
             if (requiredBytes > availableBytes) {
                 throw IOException(
                     "本地空间不足：本次需要下载 ${formatBytes(requiredBytes)}，" +
@@ -91,8 +109,12 @@ class NetworkRomSyncer(private val context: Context) {
             var downloadedBytes = 0L
             for (remoteFile in expectedFiles.values) {
                 coroutineContext.ensureActive()
-                val localFile = safeLocalFile(mirrorRoot, remoteFile.relativePath)
-                if (localFile.isFile && localFile.length() == remoteFile.size) {
+                val localFile = safeLocalFile(romsRoot, remoteFile.relativePath)
+                val upToDate = localFile.isFile &&
+                    (remoteFile.relativePath !in managedFiles ||
+                        localFile.length() == remoteFile.size)
+                if (upToDate) {
+                    // Keep whatever already exists locally, including the user's own ROMs.
                     skippedFiles++
                 } else {
                     onProgress(
@@ -106,6 +128,7 @@ class NetworkRomSyncer(private val context: Context) {
                         )
                     )
                     downloadAtomic(client, remoteFile, localFile)
+                    managedFiles.add(remoteFile.relativePath)
                     downloadedFiles++
                     downloadedBytes += remoteFile.size.coerceAtLeast(0L)
                 }
@@ -123,9 +146,30 @@ class NetworkRomSyncer(private val context: Context) {
             }
 
             coroutineContext.ensureActive()
-            onProgress(Progress(Stage.CLEANING, totalFiles = expectedFiles.size))
-            val deletedFiles = cleanMirror(mirrorRoot, expectedFiles.keys)
+            val deletedFiles = deleteStaleFiles(romsRoot, expectedFiles.keys, managedFiles)
+            // Remove the mirror directory created by older versions to avoid duplicate entries.
+            val legacyMirror = File(romsRoot, LEGACY_MIRROR_DIRECTORY)
+            if (legacyMirror.isDirectory) {
+                runCatching { legacyMirror.deleteRecursively() }
+            }
+            saveManifest(manifestKey, managedFiles)
             return Result(downloadedFiles, skippedFiles, deletedFiles)
+        } finally {
+            runCatching { client.close() }
+        }
+    }
+
+    /** Lists the systems that actually have files in the remote directory. */
+    suspend fun listAvailableSystems(): List<GameSystem> {
+        val config = NetworkStoragePreferences.load(context)
+        check(config.isConfigured) { "请先启用网络存储并填写服务器地址" }
+        val client = NetworkClientFactory.create(config)
+        try {
+            val connected = runInterruptible { client.testConnection() }
+            check(connected) { "无法连接网络目录" }
+            val remoteFiles = listRemoteFiles(client, config.remotePath)
+            val present = resolveSystems(remoteFiles).values.toSet()
+            return GameSystem.all().filter { it.id in present }
         } finally {
             runCatching { client.close() }
         }
@@ -139,8 +183,7 @@ class NetworkRomSyncer(private val context: Context) {
         while (directories.isNotEmpty()) {
             coroutineContext.ensureActive()
             val directory = directories.removeAt(0)
-            // A failed listing must abort the sync. Treating it as an empty directory could
-            // otherwise delete valid local files during the mirror cleanup phase.
+            // A failed listing must abort the sync instead of silently reporting success.
             val entries = runInterruptible { client.listFiles(directory) }
             entries.forEach { entry ->
                 if (entry.isDirectory) {
@@ -169,40 +212,77 @@ class NetworkRomSyncer(private val context: Context) {
         return segments.joinToString("/")
     }
 
-    private fun filterSelectedSystems(
-        remoteFiles: List<RemoteFile>,
-        selectedSystemIds: Set<String>
-    ): List<RemoteFile> {
-        if (selectedSystemIds.containsAll(GameSystem.all().map { it.id.dbname })) return remoteFiles
+    private fun sourceKey(config: NetworkStorageConfig): String =
+        "${config.protocol.name}|${config.authority}|${config.remotePath}"
 
-        val directSystems = remoteFiles.associate { it.relativePath to directSystem(it.relativePath) }
-        val directorySystems = remoteFiles
+    private fun manifestFile(): File = File(context.filesDir, MANIFEST_FILE_NAME)
+
+    private fun loadManifest(sourceKey: String): MutableSet<String> {
+        val file = manifestFile()
+        if (!file.isFile) return mutableSetOf()
+        val lines = runCatching { file.readLines() }.getOrDefault(emptyList())
+        if (lines.firstOrNull() != MANIFEST_HEADER + sourceKey) return mutableSetOf()
+        return lines.drop(1).filter { it.isNotEmpty() }.toMutableSet()
+    }
+
+    private fun saveManifest(sourceKey: String, paths: Set<String>) {
+        runCatching {
+            val file = manifestFile()
+            file.parentFile?.mkdirs()
+            file.writeText(
+                buildString {
+                    append(MANIFEST_HEADER).append(sourceKey).append('\n')
+                    paths.sorted().forEach { append(it).append('\n') }
+                }
+            )
+        }
+    }
+
+    /** Removes synced copies that no longer exist in the source, leaving the user's own files. */
+    private fun deleteStaleFiles(
+        root: File,
+        expectedPaths: Set<String>,
+        managedFiles: MutableSet<String>
+    ): Int {
+        var deletedFiles = 0
+        val stale = managedFiles.filterNot { it in expectedPaths }
+        for (relativePath in stale) {
+            val file = runCatching { safeLocalFile(root, relativePath) }.getOrNull()
+            if (file == null) {
+                managedFiles.remove(relativePath)
+            } else if (!file.isFile) {
+                managedFiles.remove(relativePath)
+            } else if (file.delete()) {
+                deletedFiles++
+                managedFiles.remove(relativePath)
+            }
+        }
+        return deletedFiles
+    }
+
+    /** Maps every remote file to the system it belongs to, when it can be identified. */
+    private fun resolveSystems(files: List<RemoteFile>): Map<String, SystemID> {
+        val direct = files.associate { it.relativePath to directSystem(it.relativePath) }
+        val directorySystems = files
             .groupBy { parentPath(it.relativePath) }
-            .mapNotNull { (directory, files) ->
-                val systems = files.mapNotNull { directSystems[it.relativePath] }.distinct()
+            .mapNotNull { (directory, directoryFiles) ->
+                val systems = directoryFiles.mapNotNull { direct[it.relativePath] }.distinct()
                 if (systems.size == 1) directory to systems.single() else null
             }
             .toMap()
 
-        return remoteFiles.filter { file ->
-            val direct = directSystems[file.relativePath]
-            if (direct != null) return@filter direct.dbname in selectedSystemIds
-
-            var parent = parentPath(file.relativePath)
-            while (parent.isNotEmpty()) {
-                val inherited = directorySystems[parent]
-                if (inherited != null) return@filter inherited.dbname in selectedSystemIds
-                parent = parentPath(parent)
+        return files.mapNotNull { file ->
+            val system = direct[file.relativePath] ?: run {
+                var parent = parentPath(file.relativePath)
+                var inherited: SystemID? = null
+                while (parent.isNotEmpty() && inherited == null) {
+                    inherited = directorySystems[parent]
+                    parent = parentPath(parent)
+                }
+                inherited
             }
-
-            val extension = file.relativePath.substringAfterLast('.', "").lowercase(Locale.US)
-            val candidates = GameSystem.all().filter { system ->
-                system.supportedExtensions.any { it.equals(extension, ignoreCase = true) }
-            }
-            // Unknown files are treated as shared resources (BIOS, metadata or media). Files
-            // below a recognized system directory have already been classified above.
-            candidates.isEmpty() || candidates.any { it.id.dbname in selectedSystemIds }
-        }
+            system?.let { file.relativePath to it }
+        }.toMap()
     }
 
     private fun directSystem(relativePath: String): SystemID? {
@@ -219,12 +299,11 @@ class NetworkRomSyncer(private val context: Context) {
 
     private fun parentPath(path: String): String = path.substringBeforeLast('/', "")
 
-    private fun getMirrorDirectory(): File {
+    private fun getRomsDirectory(): File {
         val preferenceKey = context.getString(R.string.pref_key_legacy_external_folder)
         val configured = SharedPreferencesHelper.getLegacySharedPreferences(context)
             .getString(preferenceKey, null)
-        val romsRoot = configured?.takeIf { it.isNotBlank() }?.let(::File) ?: File("/sdcard/roms")
-        return File(romsRoot, MIRROR_DIRECTORY_NAME)
+        return configured?.takeIf { it.isNotBlank() }?.let(::File) ?: File("/sdcard/roms")
     }
 
     private fun safeLocalFile(root: File, relativePath: String): File {
@@ -265,27 +344,10 @@ class NetworkRomSyncer(private val context: Context) {
         }
     }
 
-    private fun cleanMirror(root: File, expectedPaths: Set<String>): Int {
-        var deletedFiles = 0
-        root.walkBottomUp().forEach { file ->
-            if (file == root) return@forEach
-            if (file.isDirectory) {
-                file.delete()
-            } else {
-                val relativePath = file.relativeTo(root).invariantSeparatorsPath
-                if (relativePath !in expectedPaths) {
-                    if (!file.delete()) {
-                        throw IOException("无法删除镜像中的多余文件：${file.absolutePath}")
-                    }
-                    deletedFiles++
-                }
-            }
-        }
-        return deletedFiles
-    }
-
     companion object {
-        const val MIRROR_DIRECTORY_NAME = "网络镜像"
+        private const val MANIFEST_FILE_NAME = "network_sync_manifest.txt"
+        private const val MANIFEST_HEADER = "v1|"
+        private const val LEGACY_MIRROR_DIRECTORY = "网络镜像"
 
         fun formatBytes(bytes: Long): String {
             if (bytes < 1024L) return "$bytes B"

@@ -13,7 +13,6 @@ import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.TwoStatePreference
 import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.common.coroutines.launchOnState
-import com.swordfish.lemuroid.lib.library.GameSystem
 import com.swordfish.lemuroid.lib.storage.network.NetworkRomSyncer
 import com.swordfish.lemuroid.lib.storage.network.NetworkStoragePreferences
 
@@ -21,9 +20,6 @@ object NetworkStorageSettingsUi {
 
     fun initialize(fragment: PreferenceFragmentCompat, syncManager: NetworkRomSyncManager) {
         val context = fragment.requireContext()
-        val systemsPreference = fragment.findPreference<MultiSelectListPreference>(
-            context.getString(R.string.pref_key_network_storage_sync_systems)
-        )
         val syncEnabledPreference = fragment.findPreference<TwoStatePreference>(
             context.getString(R.string.pref_key_network_storage_sync_enabled)
         )
@@ -64,11 +60,68 @@ object NetworkStorageSettingsUi {
             }
         }
 
+        val excludedSystemsPreference = fragment.findPreference<MultiSelectListPreference>(
+            context.getString(R.string.pref_key_network_storage_sync_excluded_systems)
+        )
+        fun loadExcludedSystems() {
+            val preference = excludedSystemsPreference ?: return
+            if (!NetworkStoragePreferences.load(context).isConfigured) {
+                preference.isEnabled = false
+                preference.summary =
+                    context.getString(R.string.network_storage_sync_excluded_not_configured)
+                return
+            }
+            val saved = NetworkStoragePreferences.loadExcludedSystemIds(context)
+            preference.values = saved.toMutableSet()
+            preference.isEnabled = false
+            preference.summary = context.getString(R.string.network_storage_sync_excluded_loading)
+            syncManager.loadAvailableSystems { systems ->
+                if (fragment.view == null) return@loadAvailableSystems
+                when {
+                    systems == null -> {
+                        preference.summary =
+                            context.getString(R.string.network_storage_sync_excluded_load_failed)
+                    }
+                    systems.isEmpty() -> {
+                        preference.entries = emptyArray()
+                        preference.entryValues = emptyArray()
+                        preference.summary =
+                            context.getString(R.string.network_storage_sync_excluded_empty)
+                    }
+                    else -> {
+                        preference.entries =
+                            systems.map { context.getString(it.titleResId) }.toTypedArray()
+                        preference.entryValues = systems.map { it.id.dbname }.toTypedArray()
+                        val available = systems.map { it.id.dbname }.toSet()
+                        val effective = saved intersect available
+                        if (effective != saved) {
+                            NetworkStoragePreferences.saveExcludedSystemIds(context, effective)
+                        }
+                        preference.values = effective.toMutableSet()
+                        preference.summary = excludedSummary(context, effective)
+                        preference.isEnabled = true
+                    }
+                }
+            }
+        }
+        excludedSystemsPreference?.apply {
+            isPersistent = false
+            setOnPreferenceChangeListener { preference, newValue ->
+                @Suppress("UNCHECKED_CAST")
+                val excluded = newValue as? Set<String> ?: emptySet()
+                NetworkStoragePreferences.saveExcludedSystemIds(context, excluded)
+                (preference as MultiSelectListPreference).summary =
+                    excludedSummary(context, excluded)
+                true
+            }
+        }
+
         fragment.childFragmentManager.setFragmentResultListener(
             NetworkStorageConfigDialogFragment.RESULT_KEY,
             fragment.viewLifecycleOwner
         ) { _, _ ->
             refreshConnectionSummary(fragment)
+            loadExcludedSystems()
             updateSyncState(fragment, syncManager.state.value)
         }
 
@@ -80,20 +133,6 @@ object NetworkStorageSettingsUi {
                 NetworkStorageConfigDialogFragment::class.java.name
             )
             true
-        }
-
-        systemsPreference?.apply {
-            val systems = GameSystem.all()
-            entries = systems.map { context.getString(it.titleResId) }.toTypedArray()
-            entryValues = systems.map { it.id.dbname }.toTypedArray()
-            values = NetworkStoragePreferences.loadSyncSystemIds(context).toMutableSet()
-            updateSystemsSummary(this, values)
-            setOnPreferenceChangeListener { preference, newValue ->
-                @Suppress("UNCHECKED_CAST")
-                val selected = newValue as? Set<String> ?: emptySet()
-                updateSystemsSummary(preference as MultiSelectListPreference, selected)
-                true
-            }
         }
 
         syncEnabledPreference?.setOnPreferenceChangeListener { _, newValue ->
@@ -123,8 +162,17 @@ object NetworkStorageSettingsUi {
         }
 
         refreshConnectionSummary(fragment)
+        loadExcludedSystems()
         fragment.launchOnState(Lifecycle.State.RESUMED) {
             syncManager.state.collect { state -> updateSyncState(fragment, state) }
+        }
+    }
+
+    private fun excludedSummary(context: android.content.Context, excluded: Set<String>): String {
+        return if (excluded.isEmpty()) {
+            context.getString(R.string.network_storage_sync_excluded_none)
+        } else {
+            context.getString(R.string.network_storage_sync_excluded_count, excluded.size)
         }
     }
 
@@ -146,14 +194,6 @@ object NetworkStorageSettingsUi {
         }
     }
 
-    private fun updateSystemsSummary(preference: MultiSelectListPreference, selected: Set<String>) {
-        preference.summary = preference.context.getString(
-            R.string.network_storage_sync_systems_summary,
-            selected.size,
-            GameSystem.all().size
-        )
-    }
-
     private fun updateSyncState(
         fragment: PreferenceFragmentCompat,
         state: NetworkRomSyncManager.State
@@ -164,9 +204,6 @@ object NetworkStorageSettingsUi {
         )
         val cancel = fragment.findPreference<Preference>(
             context.getString(R.string.pref_key_network_storage_sync_cancel)
-        )
-        val systems = fragment.findPreference<MultiSelectListPreference>(
-            context.getString(R.string.pref_key_network_storage_sync_systems)
         )
         val enabled = fragment.findPreference<TwoStatePreference>(
             context.getString(R.string.pref_key_network_storage_sync_enabled)
@@ -179,7 +216,6 @@ object NetworkStorageSettingsUi {
         syncNow?.isEnabled = syncAllowed && !running && !cancelling
         cancel?.isVisible = running || cancelling
         cancel?.isEnabled = running
-        systems?.isEnabled = !running && !cancelling
 
         syncNow?.summary = when (state) {
             is NetworkRomSyncManager.State.Idle,
@@ -216,8 +252,6 @@ object NetworkStorageSettingsUi {
                 NetworkRomSyncer.formatBytes(progress.downloadedBytes),
                 NetworkRomSyncer.formatBytes(progress.totalBytes)
             )
-            NetworkRomSyncer.Stage.CLEANING ->
-                context.getString(R.string.network_storage_sync_cleaning)
             NetworkRomSyncer.Stage.INDEXING ->
                 context.getString(R.string.network_storage_sync_indexing)
         }
