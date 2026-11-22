@@ -69,6 +69,7 @@
                     android:key="@string/pref_key_network_storage_enabled"
                     android:title="@string/network_storage_enabled"
                     app:iconSpaceReserved="false"
+                    android:persistent="false"
                     android:defaultValue="false"/>
 
                 <Preference
@@ -104,6 +105,7 @@
                     android:summary="@string/network_storage_sync_enabled_summary"
                     android:dependency="@string/pref_key_network_storage_enabled"
                     app:iconSpaceReserved="false"
+                    android:persistent="false"
                     android:defaultValue="false"/>
 
                 <Preference

@@ -2,6 +2,7 @@ package com.swordfish.lemuroid.lib.storage.network
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.frybits.harmony.getHarmonySharedPreferences
 import com.swordfish.lemuroid.lib.R
 import com.swordfish.lemuroid.lib.preferences.SharedPreferencesHelper
 import java.io.File
@@ -17,9 +18,37 @@ object NetworkStoragePreferences {
     private const val KEY_REMOTE_PATH = "network_storage_remote_path"
     private const val KEY_SYNC_ENABLED = "network_storage_sync_enabled"
     private const val KEY_SYNC_COMPLETED_AT = "network_storage_sync_completed_at"
+    private const val PREFS_FILE_NAME = "network_storage_options"
+    private const val KEY_MIGRATED = "network_storage_migrated_v1"
 
-    private fun prefs(context: Context): SharedPreferences =
-        SharedPreferencesHelper.getSharedPreferences(context)
+    /** Network settings live in their own file. The game process writes general options such as
+     *  pad ports and autosave; sharing one Harmony file let its stale copy erase the server. */
+    private fun prefs(context: Context): SharedPreferences {
+        val appContext = context.applicationContext
+        val networkPrefs = appContext.getHarmonySharedPreferences(PREFS_FILE_NAME)
+        migrateLegacyPreferences(appContext, networkPrefs)
+        return networkPrefs
+    }
+
+    private fun migrateLegacyPreferences(context: Context, target: SharedPreferences) {
+        if (target.getBoolean(KEY_MIGRATED, false)) return
+        synchronized(this) {
+            if (target.getBoolean(KEY_MIGRATED, false)) return
+            val legacy = SharedPreferencesHelper.getSharedPreferences(context)
+            target.edit()
+                .putBoolean(KEY_ENABLED, legacy.getBoolean(KEY_ENABLED, false))
+                .putString(KEY_PROTOCOL, legacy.getString(KEY_PROTOCOL, null))
+                .putString(KEY_HOST, legacy.getString(KEY_HOST, ""))
+                .putString(KEY_PORT, legacy.getString(KEY_PORT, "0"))
+                .putString(KEY_USERNAME, legacy.getString(KEY_USERNAME, ""))
+                .putString(KEY_PASSWORD, legacy.getString(KEY_PASSWORD, ""))
+                .putString(KEY_REMOTE_PATH, legacy.getString(KEY_REMOTE_PATH, ""))
+                .putBoolean(KEY_SYNC_ENABLED, legacy.getBoolean(KEY_SYNC_ENABLED, false))
+                .putLong(KEY_SYNC_COMPLETED_AT, legacy.getLong(KEY_SYNC_COMPLETED_AT, 0L))
+                .putBoolean(KEY_MIGRATED, true)
+                .commit()
+        }
+    }
 
     fun load(context: Context): NetworkStorageConfig {
         val p = prefs(context)

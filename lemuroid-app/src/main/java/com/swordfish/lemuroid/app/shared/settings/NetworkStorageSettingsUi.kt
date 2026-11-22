@@ -22,6 +22,11 @@ object NetworkStorageSettingsUi {
         val syncEnabledPreference = fragment.findPreference<TwoStatePreference>(
             context.getString(R.string.pref_key_network_storage_sync_enabled)
         )
+        val networkEnabledPreference = fragment.findPreference<TwoStatePreference>(
+            context.getString(R.string.pref_key_network_storage_enabled)
+        )
+        networkEnabledPreference?.isChecked = NetworkStoragePreferences.load(context).enabled
+        syncEnabledPreference?.isChecked = NetworkStoragePreferences.isSyncEnabled(context)
         val storagePermissions = arrayOf(
             Manifest.permission.READ_EXTERNAL_STORAGE,
             Manifest.permission.WRITE_EXTERNAL_STORAGE
@@ -35,10 +40,12 @@ object NetworkStorageSettingsUi {
             ActivityResultContracts.RequestMultiplePermissions()
         ) { grants ->
             if (storagePermissions.all { grants[it] == true }) {
+                NetworkStoragePreferences.saveSyncEnabled(context, true)
                 syncEnabledPreference?.isChecked = true
                 syncManager.start()
                 Toast.makeText(context, R.string.network_storage_sync_started, Toast.LENGTH_SHORT).show()
             } else {
+                NetworkStoragePreferences.saveSyncEnabled(context, false)
                 syncEnabledPreference?.isChecked = false
                 Toast.makeText(
                     context,
@@ -54,6 +61,7 @@ object NetworkStorageSettingsUi {
                 syncManager.start()
                 Toast.makeText(context, R.string.network_storage_sync_started, Toast.LENGTH_SHORT).show()
             } else {
+                NetworkStoragePreferences.saveSyncEnabled(context, false)
                 syncEnabledPreference?.isChecked = false
                 permissionLauncher.launch(storagePermissions)
             }
@@ -78,13 +86,16 @@ object NetworkStorageSettingsUi {
         }
 
         syncEnabledPreference?.setOnPreferenceChangeListener { _, newValue ->
-            if (newValue == true) startSync() else syncManager.cancel()
+            val syncEnabled = newValue == true
+            NetworkStoragePreferences.saveSyncEnabled(context, syncEnabled)
+            if (syncEnabled) startSync() else syncManager.cancel()
             fragment.view?.post { updateSyncState(fragment, syncManager.state.value) }
             true
         }
-        fragment.findPreference<TwoStatePreference>(
-            context.getString(R.string.pref_key_network_storage_enabled)
-        )?.setOnPreferenceChangeListener { _, _ ->
+        networkEnabledPreference?.setOnPreferenceChangeListener { _, newValue ->
+            val enabled = newValue == true
+            val config = NetworkStoragePreferences.load(context)
+            NetworkStoragePreferences.save(context, config.copy(enabled = enabled))
             fragment.view?.post { updateSyncState(fragment, syncManager.state.value) }
             true
         }
@@ -115,6 +126,12 @@ object NetworkStorageSettingsUi {
             context.getString(R.string.pref_key_network_storage_configure)
         ) ?: return
         val config = NetworkStoragePreferences.load(context)
+        fragment.findPreference<TwoStatePreference>(
+            context.getString(R.string.pref_key_network_storage_enabled)
+        )?.isChecked = config.enabled
+        fragment.findPreference<TwoStatePreference>(
+            context.getString(R.string.pref_key_network_storage_sync_enabled)
+        )?.isChecked = NetworkStoragePreferences.isSyncEnabled(context)
         preference.summary = if (config.hostname.isBlank()) {
             context.getString(R.string.network_storage_config_not_set)
         } else {
