@@ -25,10 +25,10 @@ class LemuroidApplication : DaggerApplication(), HasWorkerInjector {
     override fun onCreate() {
         super.onCreate()
 
-        // Heal a corrupted Harmony preferences store BEFORE anything reads settings.
-        // A half-written transaction log makes every read throw UTFDataFormatException,
-        // which crashes game loads. Each game launch is a fresh process, so this runs
-        // in time. See HarmonyStoreHealer for details.
+        // Heal a corrupted Harmony preferences store BEFORE anything reads settings. Only the
+        // snapshot is validated: the pending transaction log holds the most recent writes (pad
+        // ports, key bindings) and deleting it here would roll them back on every process start.
+        // See HarmonyStoreHealer for details.
         HarmonyStoreHealer.heal(this)
 
         val initializeComponent = if (isMainProcess()) {
