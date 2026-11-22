@@ -1,6 +1,7 @@
 package com.swordfish.lemuroid.app.shared.game
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.graphics.PointF
 import android.os.Bundle
@@ -8,6 +9,7 @@ import android.view.Gravity
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -84,6 +86,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -99,6 +102,7 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 
 @OptIn(FlowPreview::class, DelicateCoroutinesApi::class)
@@ -151,6 +155,11 @@ abstract class BaseGameActivity : ImmersiveActivity() {
     protected val retroGameViewFlow = MutableStateFlow<GLRetroView?>(null)
     protected var retroGameView: GLRetroView? by MutableStateProperty(retroGameViewFlow)
 
+    /** Core frames advanced per presented frame, raised when the display cannot present at the
+     *  refresh rate it reports. Fast forward multiplies this baseline instead of replacing it. */
+    private var baseFrameSpeed = 1
+    private var framePacingChecked = false
+
     private val loadingState = MutableStateFlow(false)
     private val loadingMessageStateFlow = MutableStateFlow("")
     private val controllerConfigsState = MutableStateFlow<Map<Int, ControllerConfig>>(mapOf())
@@ -189,6 +198,10 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
         launchOnState(Lifecycle.State.CREATED) {
             initializeControllerConfigsFlow()
+        }
+
+        launchOnState(Lifecycle.State.CREATED) {
+            initializeFramePacingFlow()
         }
 
         launchOnState(Lifecycle.State.CREATED) {
@@ -291,6 +304,60 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
     private suspend fun waitRetroGameViewInitialized() {
         retroGameViewFlow()
+    }
+
+    /**
+     * Some Android TV boxes report a 60Hz display while their compositor only presents 30 unique
+     * frames per second (typically a 1080p UI upscaled to a 2160p output). LibretroDroid then
+     * advances one core frame per presented frame, so the game runs at half speed and the audio
+     * resampler starves: sound crackles and everything feels sluggish.
+     *
+     * Detect that halving and advance two core frames per presented frame. LibretroDroid also
+     * scales the audio playback speed by the same factor, so sound stays continuous and keeps
+     * the correct pitch.
+     */
+    private suspend fun initializeFramePacingFlow() {
+        if (framePacingChecked) return
+        try {
+            waitGLEvent<GLRetroView.GLRetroEvents.FrameRendered>()
+            framePacingChecked = true
+            // Let the game finish restoring its state: the first seconds can present fewer frames
+            // for reasons that have nothing to do with the display pipeline.
+            delay(1_500)
+
+            val reportedRefreshRate = (getSystemService(Context.WINDOW_SERVICE) as WindowManager)
+                .defaultDisplay.refreshRate
+            val presentedRate = measurePresentedFramesPerSecond()
+            Timber.i("Frame pacing: presented %.1f fps, reported refresh rate %.1f Hz", presentedRate, reportedRefreshRate)
+
+            if (reportedRefreshRate >= 50f && presentedRate >= 5.0) {
+                val factor = (reportedRefreshRate / presentedRate).roundToInt()
+                val expectedRate = reportedRefreshRate / factor
+                // Only react when the display is locked to the reported rate divided by an exact
+                // integer, which is how an under-powered composition pipeline behaves. A game that
+                // is merely a bit too heavy lands between the multiples and is left untouched.
+                if (factor in 2..3 && abs(presentedRate - expectedRate) <= expectedRate * 0.2) {
+                    baseFrameSpeed = factor
+                    retroGameView?.frameSpeed = factor
+                    Timber.i("Frame pacing: advancing $factor core frames per presented frame")
+                }
+            }
+        } catch (e: Throwable) {
+            Timber.e(e, "Unable to measure the presented frame rate")
+        }
+    }
+
+    private suspend fun measurePresentedFramesPerSecond(): Double {
+        val retroView = retroGameViewFlow()
+        val startTime = System.nanoTime()
+        var frameCount = 0
+        withTimeoutOrNull(2_000L) {
+            retroView.getGLRetroEvents()
+                .filterIsInstance<GLRetroView.GLRetroEvents.FrameRendered>()
+                .collect { frameCount++ }
+        }
+        val elapsedSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0
+        return if (elapsedSeconds > 0.5) frameCount / elapsedSeconds else 0.0
     }
 
     private suspend fun initializeRumbleFlow() {
@@ -469,7 +536,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             this.putExtra(GameMenuContract.EXTRA_SYSTEM_CORE_CONFIG, systemCoreConfig)
             this.putExtra(GameMenuContract.EXTRA_AUDIO_ENABLED, retroGameView?.audioEnabled)
             this.putExtra(GameMenuContract.EXTRA_FAST_FORWARD_SUPPORTED, system.fastForwardSupport)
-            this.putExtra(GameMenuContract.EXTRA_FAST_FORWARD, (retroGameView?.frameSpeed ?: 1) > 1)
+            this.putExtra(GameMenuContract.EXTRA_FAST_FORWARD, (retroGameView?.frameSpeed ?: baseFrameSpeed) > baseFrameSpeed)
         }
         startActivityForResult(intent, DIALOG_REQUEST)
         overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
@@ -947,7 +1014,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                         GameMenuContract.RESULT_ENABLE_FAST_FORWARD,
                         false
                     )
-                    this.frameSpeed = if (fastForwardEnabled) 2 else 1
+                    this.frameSpeed = if (fastForwardEnabled) baseFrameSpeed * 2 else baseFrameSpeed
                 }
             }
         }

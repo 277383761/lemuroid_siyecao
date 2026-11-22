@@ -8,8 +8,8 @@ plugins {
 
 android {
     defaultConfig {
-        versionCode = 246
-        versionName = "1.17.23" // Always remember to update Cores Tag!
+        versionCode = 247
+        versionName = "1.17.24" // Always remember to update Cores Tag!
         applicationId = "com.swordfish.lemuroid"
     }
 
