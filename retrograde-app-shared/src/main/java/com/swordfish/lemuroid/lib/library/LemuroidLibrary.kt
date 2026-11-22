@@ -426,7 +426,8 @@ class LemuroidLibrary(
 
     private fun Game.isNetworkGame(): Boolean {
         val scheme = Uri.parse(fileUri).scheme ?: return false
-        return scheme == "dav" || scheme == "smb" || scheme == "ftp"
+        return scheme == "webdav" || scheme == "dav" ||
+            scheme == "smb" || scheme == "ftp"
     }
 
     private fun Game.dedupeKey(): Pair<String, String> {

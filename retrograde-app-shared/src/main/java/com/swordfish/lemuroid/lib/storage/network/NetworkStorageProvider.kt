@@ -8,6 +8,7 @@ import com.swordfish.lemuroid.common.kotlin.extractZipEntryToFile
 import com.swordfish.lemuroid.common.kotlin.isZipped
 import com.swordfish.lemuroid.lib.R
 import com.swordfish.lemuroid.lib.library.GameSystem
+import com.swordfish.lemuroid.lib.preferences.SharedPreferencesHelper
 import com.swordfish.lemuroid.lib.library.db.entity.DataFile
 import com.swordfish.lemuroid.lib.library.db.entity.Game
 import com.swordfish.lemuroid.lib.storage.BaseStorageFile
@@ -43,17 +44,30 @@ class NetworkStorageProvider(private val context: Context) : StorageProvider {
 
     private fun currentConfig(): NetworkStorageConfig = NetworkStoragePreferences.load(context)
 
-    /** The URI stored with the game is authoritative. Preferences may be stale in the separate
-     *  game process; using their protocol can turn a webdav:// ROM into an SMB download. */
+    /** Pick the protocol/host to download a game.
+     *
+     *  The current configuration is authoritative when it is valid and points at the same host
+     *  as the game URI: a library entry may carry a stale scheme from before the user switched
+     *  protocols (e.g. an smb:// entry left over after switching to WebDAV), and trusting it
+     *  would route a WebDAV ROM through the SMB client. Only when the URI targets a different
+     *  host (multi-server setups) do we follow the URI's own scheme. */
     private fun configForUri(config: NetworkStorageConfig, uri: Uri): NetworkStorageConfig {
-        val protocol = NetworkProtocol.fromScheme(uri.scheme) ?: return config
-        val host = uri.host
-        if (host.isNullOrBlank()) return config.copy(protocol = protocol)
+        val uriProtocol = NetworkProtocol.fromScheme(uri.scheme)
+        val uriHost = uri.host
+
+        if (config.isConfigured && !uriHost.isNullOrBlank() &&
+            uriHost.equals(config.hostname, ignoreCase = true)
+        ) {
+            return config
+        }
+
+        val protocol = uriProtocol ?: return config
+        if (uriHost.isNullOrBlank()) return config.copy(protocol = protocol)
         val preserveHttps = protocol == NetworkProtocol.WEBDAV &&
             config.protocol == NetworkProtocol.WEBDAV && config.isHttps
         return config.copy(
             protocol = protocol,
-            host = (if (preserveHttps) "https://" else "") + host,
+            host = (if (preserveHttps) "https://" else "") + uriHost,
             port = if (uri.port > 0) uri.port else 0
         )
     }
@@ -144,6 +158,10 @@ class NetworkStorageProvider(private val context: Context) : StorageProvider {
         dataFiles: List<DataFile>,
         allowVirtualFiles: Boolean
     ): RomFiles {
+        // The game process is long-lived and may hold a stale Harmony cache. Drop it before
+        // reading the network config so a protocol/host change saved in the settings screen is
+        // picked up immediately instead of routing the ROM through the wrong client.
+        SharedPreferencesHelper.reloadSharedPreferencesCache()
         val config = configForUri(currentConfig(), Uri.parse(game.fileUri))
         val client = NetworkClientFactory.create(config)
         Timber.d("Loading ${config.protocol} ROM from ${config.authority}")
