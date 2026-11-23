@@ -14,6 +14,10 @@ import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
@@ -155,9 +159,10 @@ abstract class BaseGameActivity : ImmersiveActivity() {
     protected val retroGameViewFlow = MutableStateFlow<GLRetroView?>(null)
     protected var retroGameView: GLRetroView? by MutableStateProperty(retroGameViewFlow)
 
-    /** Core frames advanced per presented frame, raised when the display cannot present at the
-     *  refresh rate it reports. Fast forward multiplies this baseline instead of replacing it. */
-    private var baseFrameSpeed = 1
+    /** Refresh rate the compositor actually presents at, when it is a fraction of the rate the
+     *  display reports. LibretroDroid needs it to advance the right number of core frames. */
+    private var effectiveRefreshRate: Float? = null
+    private var restoreAfterFramePacingRestart = false
     private var framePacingChecked = false
 
     private val loadingState = MutableStateFlow(false)
@@ -183,6 +188,10 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         game = intent.getSerializableExtra(EXTRA_GAME) as Game
         systemCoreConfig = intent.getSerializableExtra(EXTRA_SYSTEM_CORE_CONFIG) as SystemCoreConfig
         system = GameSystem.findById(game.systemId)
+
+        effectiveRefreshRate = loadEffectiveRefreshRate()
+        restoreAfterFramePacingRestart = consumeFramePacingRestartFlag()
+        pacingTrace("onCreate effective=$effectiveRefreshRate restore=$restoreAfterFramePacingRestart reported=${getReportedRefreshRate()}")
 
         lifecycleScope.launch {
             loadGame()
@@ -308,26 +317,28 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
     /**
      * Some Android TV boxes report a 60Hz display while their compositor only presents 30 unique
-     * frames per second (typically a 1080p UI upscaled to a 2160p output). LibretroDroid then
-     * advances one core frame per presented frame, so the game runs at half speed and the audio
-     * resampler starves: sound crackles and everything feels sluggish.
+     * frames per second (typically a 1080p UI upscaled to a 2160p output). LibretroDroid advances
+     * one core frame per presented frame and also derives the audio rate from the display
+     * refresh rate, so the game runs at half speed and the sound crackles.
      *
-     * Detect that halving and advance two core frames per presented frame. LibretroDroid also
-     * scales the audio playback speed by the same factor, so sound stays continuous and keeps
-     * the correct pitch.
+     * The refresh rate is only read when the view is created, and there is no API to pass a
+     * different one: the activity has to restart with the effective rate persisted.
      */
     private suspend fun initializeFramePacingFlow() {
         if (framePacingChecked) return
+        if (effectiveRefreshRate != null) return
         try {
+            pacingTrace("flow start")
             waitGLEvent<GLRetroView.GLRetroEvents.FrameRendered>()
+            pacingTrace("first frame")
             framePacingChecked = true
             // Let the game finish restoring its state: the first seconds can present fewer frames
             // for reasons that have nothing to do with the display pipeline.
             delay(1_500)
 
-            val reportedRefreshRate = (getSystemService(Context.WINDOW_SERVICE) as WindowManager)
-                .defaultDisplay.refreshRate
+            val reportedRefreshRate = getReportedRefreshRate()
             val presentedRate = measurePresentedFramesPerSecond()
+            pacingTrace("measure reported=$reportedRefreshRate presented=$presentedRate")
             Timber.i("Frame pacing: presented %.1f fps, reported refresh rate %.1f Hz", presentedRate, reportedRefreshRate)
 
             if (reportedRefreshRate >= 50f && presentedRate >= 5.0) {
@@ -337,15 +348,146 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                 // integer, which is how an under-powered composition pipeline behaves. A game that
                 // is merely a bit too heavy lands between the multiples and is left untouched.
                 if (factor in 2..3 && abs(presentedRate - expectedRate) <= expectedRate * 0.2) {
-                    baseFrameSpeed = factor
-                    retroGameView?.frameSpeed = factor
-                    Timber.i("Frame pacing: advancing $factor core frames per presented frame")
+                    pacingTrace("match factor=$factor expected=$expectedRate")
+                    // Do not persist anything when the platform does not let us override the rate.
+                    val originalRate = overrideDisplayRefreshRate(expectedRate)
+                    pacingTrace("probe expected=$expectedRate original=$originalRate readback=${getReportedRefreshRate()}")
+                    if (originalRate == null) return
+                    restoreDisplayRefreshRate(originalRate)
+
+                    Timber.i("Frame pacing: display presents at %.1f Hz, restarting the core", expectedRate)
+                    saveFramePacingRates(reportedRefreshRate, expectedRate)
+                    pacingTrace("rates saved")
+
+                    // Keep the player's progress before rebuilding the core at the corrected rate.
+                    saveSRAM(game)
+                    saveAutoSave(game)
+                    intent.putExtra(EXTRA_LOAD_SAVE, true)
+                    getSharedPreferences(PREFS_FRAME_PACING, Context.MODE_PRIVATE)
+                        .edit().putBoolean(KEY_RESTART_FOR_REFRESH_RATE, true).apply()
+                    pacingTrace("recreate")
+                    recreate()
                 }
             }
         } catch (e: Throwable) {
             Timber.e(e, "Unable to measure the presented frame rate")
+            pacingTrace("error ${e.javaClass.simpleName}: ${e.message}")
         }
     }
+
+    private fun getReportedRefreshRate(): Float =
+        (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.refreshRate
+
+    /** Diagnostics for TVs whose logcat buffer cannot be read: enabled by the presence of a
+     *  marker file, so a release build stays silent unless it is being investigated over adb. */
+    private fun pacingTrace(message: String) {
+        if (!File(filesDir, PACING_TRACE_MARKER).exists()) return
+        try {
+            val file = File(filesDir, "frame_pacing.log")
+            if (file.length() > 64 * 1024) file.delete()
+            val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+            file.appendText("$time $message\n")
+        } catch (e: Throwable) {
+            // Diagnostics must never affect the game.
+        }
+    }
+
+    private fun loadEffectiveRefreshRate(): Float? {
+        val preferences = getSharedPreferences(PREFS_FRAME_PACING, Context.MODE_PRIVATE)
+        val effectiveRate = preferences.getFloat(KEY_EFFECTIVE_REFRESH_RATE, -1f)
+        val reportedRate = preferences.getFloat(KEY_REPORTED_REFRESH_RATE, -1f)
+        pacingTrace("load storedReported=$reportedRate storedEffective=$effectiveRate current=${getReportedRefreshRate()}")
+        // A saved correction is only valid for the display it was measured on.
+        if (effectiveRate <= 0f || abs(reportedRate - getReportedRefreshRate()) >= 1f) {
+            if (effectiveRate > 0f) {
+                preferences.edit()
+                    .remove(KEY_EFFECTIVE_REFRESH_RATE)
+                    .remove(KEY_REPORTED_REFRESH_RATE)
+                    .apply()
+            }
+            return null
+        }
+        return effectiveRate
+    }
+
+    private fun saveFramePacingRates(reportedRate: Float, effectiveRate: Float) {
+        getSharedPreferences(PREFS_FRAME_PACING, Context.MODE_PRIVATE).edit()
+            .putFloat(KEY_REPORTED_REFRESH_RATE, reportedRate)
+            .putFloat(KEY_EFFECTIVE_REFRESH_RATE, effectiveRate)
+            .apply()
+    }
+
+    private fun consumeFramePacingRestartFlag(): Boolean {
+        val preferences = getSharedPreferences(PREFS_FRAME_PACING, Context.MODE_PRIVATE)
+        val pending = preferences.getBoolean(KEY_RESTART_FOR_REFRESH_RATE, false)
+        if (pending) {
+            preferences.edit().remove(KEY_RESTART_FOR_REFRESH_RATE).apply()
+        }
+        return pending
+    }
+
+    /**
+     * LibretroDroid reads the refresh rate from Display when the view is created and offers no
+     * way to override it. On Android 5, Display.getRefreshRate() re-queries the display manager
+     * on every call, so mutating the cached info alone does nothing: while the override is
+     * active the display id is pointed at a non-existent display, which makes that query fail
+     * and keeps the value below. Returns the previous state, or null when the platform refuses.
+     */
+    private fun overrideDisplayRefreshRate(rate: Float): DisplayRefreshRateOverride? {
+        val display = (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
+        return try {
+            val infoField = display.javaClass.getDeclaredField("mDisplayInfo").apply { isAccessible = true }
+            val idField = display.javaClass.getDeclaredField("mDisplayId").apply { isAccessible = true }
+            val validField = display.javaClass.getDeclaredField("mIsValid").apply { isAccessible = true }
+            val info = infoField.get(display)
+            val rateField = info.javaClass.getDeclaredField("refreshRate").apply { isAccessible = true }
+
+            val originalRate = rateField.getFloat(info)
+            val originalDisplayId = idField.getInt(display)
+            val originalValid = validField.getBoolean(display)
+
+            rateField.setFloat(info, rate)
+            idField.setInt(display, UNKNOWN_DISPLAY_ID)
+            val readback = display.refreshRate
+            pacingTrace("override rate=$rate originalRate=$originalRate id=$originalDisplayId readback=$readback")
+
+            if (abs(readback - rate) >= 0.1f) {
+                restoreDisplayRefreshRate(
+                    DisplayRefreshRateOverride(originalRate, originalDisplayId, originalValid)
+                )
+                null
+            } else {
+                DisplayRefreshRateOverride(originalRate, originalDisplayId, originalValid)
+            }
+        } catch (e: Throwable) {
+            Timber.e(e, "Unable to override the display refresh rate")
+            pacingTrace("override failed ${e.javaClass.name}: ${e.message}")
+            null
+        }
+    }
+
+    private fun restoreDisplayRefreshRate(override: DisplayRefreshRateOverride) {
+        try {
+            val display = (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
+            val info = display.javaClass.getDeclaredField("mDisplayInfo")
+                .apply { isAccessible = true }.get(display)
+            info.javaClass.getDeclaredField("refreshRate").apply { isAccessible = true }
+                .setFloat(info, override.originalRate)
+            display.javaClass.getDeclaredField("mDisplayId").apply { isAccessible = true }
+                .setInt(display, override.originalDisplayId)
+            display.javaClass.getDeclaredField("mIsValid").apply { isAccessible = true }
+                .setBoolean(display, override.originalValid)
+        } catch (e: Throwable) {
+            Timber.e(e, "Unable to restore the display refresh rate")
+            pacingTrace("restore failed ${e.javaClass.name}: ${e.message}")
+        }
+    }
+
+    private class DisplayRefreshRateOverride(
+        val originalRate: Float,
+        val originalDisplayId: Int,
+        val originalValid: Boolean
+    )
 
     private suspend fun measurePresentedFramesPerSecond(): Double {
         val retroView = retroGameViewFlow()
@@ -441,7 +583,15 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         retroGameView.isFocusable = false
         retroGameView.isFocusableInTouchMode = false
 
-        lifecycle.addObserver(retroGameView)
+        // The core reads Display.refreshRate synchronously while the observer is added, so the
+        // override only has to live for the duration of this call.
+        val originalRefreshRate = effectiveRefreshRate?.let { overrideDisplayRefreshRate(it) }
+        pacingTrace("view create effective=$effectiveRefreshRate applied=$originalRefreshRate")
+        try {
+            lifecycle.addObserver(retroGameView)
+        } finally {
+            originalRefreshRate?.let { restoreDisplayRefreshRate(it) }
+        }
         gameContainerLayout.addView(retroGameView)
 
         val layoutParams = FrameLayout.LayoutParams(
@@ -536,7 +686,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             this.putExtra(GameMenuContract.EXTRA_SYSTEM_CORE_CONFIG, systemCoreConfig)
             this.putExtra(GameMenuContract.EXTRA_AUDIO_ENABLED, retroGameView?.audioEnabled)
             this.putExtra(GameMenuContract.EXTRA_FAST_FORWARD_SUPPORTED, system.fastForwardSupport)
-            this.putExtra(GameMenuContract.EXTRA_FAST_FORWARD, (retroGameView?.frameSpeed ?: baseFrameSpeed) > baseFrameSpeed)
+            this.putExtra(GameMenuContract.EXTRA_FAST_FORWARD, (retroGameView?.frameSpeed ?: 1) > 1)
         }
         startActivityForResult(intent, DIALOG_REQUEST)
         overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
@@ -1014,7 +1164,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                         GameMenuContract.RESULT_ENABLE_FAST_FORWARD,
                         false
                     )
-                    this.frameSpeed = if (fastForwardEnabled) baseFrameSpeed * 2 else baseFrameSpeed
+                    this.frameSpeed = if (fastForwardEnabled) 2 else 1
                 }
             }
         }
@@ -1022,7 +1172,8 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
     private suspend fun loadGame() {
         try {
-            val requestLoadSave = intent.getBooleanExtra(EXTRA_LOAD_SAVE, false)
+            val requestLoadSave = intent.getBooleanExtra(EXTRA_LOAD_SAVE, false) ||
+                restoreAfterFramePacingRestart
 
             val autoSaveEnabled = settingsManager.autoSave()
             val filter = settingsManager.screenFilter()
@@ -1123,6 +1274,13 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         private const val EXTRA_LOAD_SAVE = "LOAD_SAVE"
         private const val EXTRA_LEANBACK = "LEANBACK"
         private const val EXTRA_SYSTEM_CORE_CONFIG = "EXTRA_SYSTEM_CORE_CONFIG"
+
+        private const val PREFS_FRAME_PACING = "lemuroid_frame_pacing"
+        private const val KEY_REPORTED_REFRESH_RATE = "reported_refresh_rate"
+        private const val KEY_EFFECTIVE_REFRESH_RATE = "effective_refresh_rate"
+        private const val KEY_RESTART_FOR_REFRESH_RATE = "restart_for_refresh_rate"
+        private const val PACING_TRACE_MARKER = "pacing_trace_on"
+        private const val UNKNOWN_DISPLAY_ID = Int.MAX_VALUE
 
         const val REQUEST_PLAY_GAME = 1001
         const val PLAY_GAME_RESULT_SESSION_DURATION = "PLAY_GAME_RESULT_SESSION_DURATION"
